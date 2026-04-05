@@ -1,4 +1,4 @@
 MAIN=bot_hcl.py
-MEMORY=512
+MEMORY=256
 VERSION=recommended
 DISPLAY_NAME=HCL Bot
