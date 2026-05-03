@@ -430,6 +430,7 @@ class FightersRegionSelect(ui.Select):
             discord.SelectOption(label="NA", value="NA", emoji="🇺🇸"),
             discord.SelectOption(label="EU", value="EU", emoji="🇪🇺"),
             discord.SelectOption(label="SA", value="SA", emoji="🌎"),
+            discord.SelectOption(label="AS", value="AS", emoji="🌏"),
         ]
         super().__init__(placeholder="🌍 Filter by Region", options=options, custom_id="fighters_region", row=0)
 
