@@ -7,6 +7,7 @@ import sys
 import base64
 import io
 import os
+import time
 from PIL import Image
 
 # === FIX WINDOWS ===
@@ -26,18 +27,28 @@ WELCOME_GIF = "gif.gif"                                # Place gif.gif in the sa
 
 # ========================= CACHE =========================
 players_cache = None
+players_cache_ts = None  # time.monotonic() when players_cache was filled
 matches_cache = None
 events_cache = None
 
+# Roster (incl. availability) changes during matchmaking; avoid stale "Available" for the bot process lifetime.
+PLAYERS_CACHE_TTL_SEC = 120
+
 async def get_players():
-    global players_cache
-    if players_cache:
+    global players_cache, players_cache_ts
+    now = time.monotonic()
+    if (
+        players_cache is not None
+        and players_cache_ts is not None
+        and (now - players_cache_ts) < PLAYERS_CACHE_TTL_SEC
+    ):
         return players_cache
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{API_BASE}/players") as resp:
             if resp.status == 200:
                 data = await resp.json()
                 players_cache = data if isinstance(data, list) else data.get("players", data)
+                players_cache_ts = now
                 return players_cache
     return []
 
@@ -66,6 +77,19 @@ async def get_events():
 # ========================= HELPERS =========================
 def get_name(p):
     return p.get("username") or p.get("name") or "Unknown"
+
+def player_is_available(p):
+    """True if the API marks the fighter as available (hclmanager /api/players `available`, toggled in Admin)."""
+    v = p.get("available")
+    if v is True:
+        return True
+    if v is False or v is None:
+        return False
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes", "on")
+    if isinstance(v, (int, float)):
+        return v != 0
+    return bool(v)
 
 def get_record(p):
     return f"{p.get('wins', 0)}-{p.get('losses', 0)}"
@@ -148,7 +172,7 @@ def build_player_embed(found):
     embed.add_field(name="Affiliation", value=aff or "None", inline=True)
     if found.get("previousTier"):
         embed.add_field(name="Prev. Tier", value=found["previousTier"], inline=True)
-    embed.add_field(name="Available", value="✅" if found.get("available") else "❌", inline=True)
+    embed.add_field(name="Available", value="✅" if player_is_available(found) else "❌", inline=True)
     history = found.get("matchHistory") or []
     if history:
         lines = []
@@ -281,8 +305,9 @@ class HCLMainPanel(ui.View):
 
     @ui.button(label="🔄 Refresh Data", style=discord.ButtonStyle.secondary, custom_id="hcl_refresh", row=2)
     async def btn_refresh(self, interaction: discord.Interaction, button: ui.Button):
-        global players_cache, matches_cache, events_cache
+        global players_cache, players_cache_ts, matches_cache, events_cache
         players_cache = None
+        players_cache_ts = None
         matches_cache = None
         events_cache = None
         embed = discord.Embed(
@@ -879,8 +904,9 @@ async def send_top_ctx(ctx, category: str):
 
 @bot.command(name="refresh")
 async def cmd_refresh(ctx):
-    global players_cache, matches_cache, events_cache
+    global players_cache, players_cache_ts, matches_cache, events_cache
     players_cache = None
+    players_cache_ts = None
     matches_cache = None
     events_cache = None
     await ctx.send("🔄 Cache cleared! Next request will pull fresh data from the API.")
