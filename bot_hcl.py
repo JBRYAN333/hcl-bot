@@ -557,7 +557,7 @@ class PlayerActionsView(ui.View):
             res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
             score = f"{m.get('playerScore','?')}-{m.get('opponentScore','?')}"
             vod = m.get("recordingUrl")
-            vod_str = f"[▶ VOD]({vod})" if vod else "No VOD"
+            vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
             t_before = m.get("tierBefore", "?")
             t_after = m.get("tierAfter", "?")
             tier_str = f"{t_before} → {t_after}" if t_before != t_after else t_before
@@ -593,7 +593,7 @@ class HistoryLookupModal(ui.Modal, title="📜 Match History Lookup"):
             res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
             score = f"{m.get('playerScore','?')}-{m.get('opponentScore','?')}"
             vod = m.get("recordingUrl")
-            vod_str = f"[▶ VOD]({vod})" if vod else "No VOD"
+            vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
             t_before = m.get("tierBefore", "?")
             t_after = m.get("tierAfter", "?")
             tier_str = f"{t_before} → {t_after}" if t_before != t_after else t_before
@@ -632,7 +632,7 @@ class MatchesNavView(ui.View):
             score = f"{m.get('side1Score','?')}-{m.get('side2Score','?')}"
             winner = p1 if m.get("winningSide") == 1 else p2
             vod = m.get("recordingUrl")
-            vod_str = f"[▶ VOD]({vod})" if vod else "No VOD"
+            vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
             date = (m.get("playedAt") or "")[:10]
             embed.add_field(
                 name=f"{p1}  vs  {p2}  |  {score}",
@@ -811,7 +811,7 @@ async def cmd_history(ctx, *, name: str = None):
             res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
             score = f"{m.get('playerScore','?')}-{m.get('opponentScore','?')}"
             vod = m.get("recordingUrl")
-            vod_str = f"[▶ VOD]({vod})" if vod else "No VOD"
+            vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
             t_before = m.get("tierBefore", "?")
             t_after = m.get("tierAfter", "?")
             tier_str = f"{t_before} → {t_after}" if t_before != t_after else t_before
