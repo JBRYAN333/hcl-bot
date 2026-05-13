@@ -768,7 +768,6 @@ async def on_member_join(member: discord.Member):
         description=(
             f"**Welcome to the Hardcore Combat League, {member.mention}!**\n\n"
             f"HCL is the premier league for Hardcore *\"Drunken Wrestlers\"* action.\n\n"
-            f"🌐 **Record Book & Standings:** [hclmanager.replit.app]({HCL_SITE})\n"
             f"📋 Register to compete: <#{REGISTRATION_CH_ID}>\n"
             f"📜 Read the rules: <#{RULEBOOK_CH_ID}>\n"
             f"🏆 Tier List & Records: <#{TIERLIST_CH_ID}>"
