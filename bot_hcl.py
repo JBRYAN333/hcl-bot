@@ -94,6 +94,16 @@ def player_is_available(p):
 def get_record(p):
     return f"{p.get('wins', 0)}-{p.get('losses', 0)}"
 
+def get_streak(p):
+    history = p.get("matchHistory") or []
+    count = 0
+    for m in history:
+        if m.get("result") == "win":
+            count += 1
+        else:
+            break
+    return count
+
 def get_affiliation(p):
     aff = p.get("affiliation")
     return aff if aff else None
@@ -163,7 +173,7 @@ def build_player_embed(found):
     embed = discord.Embed(title=title, color=color)
     embed.add_field(name="Tier", value=f"{emoji} **{tier}**", inline=True)
     embed.add_field(name="Record", value=get_record(found), inline=True)
-    embed.add_field(name="Streak", value=found.get("consecutiveWinsInCurrentTier", 0), inline=True)
+    embed.add_field(name="Streak", value=get_streak(found), inline=True)
     embed.add_field(name="Kills", value=found.get("kills", 0), inline=True)
     embed.add_field(name="Deaths", value=found.get("deaths", 0), inline=True)
     embed.add_field(name="K/D", value=round(found.get("kills", 0) / max(found.get("deaths", 1), 1), 2), inline=True)
