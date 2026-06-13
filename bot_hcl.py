@@ -8,7 +8,10 @@ import base64
 import io
 import os
 import time
+from datetime import datetime, timezone
 from PIL import Image
+
+import supabase_client as sb
 
 # === FIX WINDOWS ===
 if sys.platform == "win32":
@@ -24,6 +27,11 @@ bot.remove_command("help")
 HCL_SITE    = "https://hclmanager.replit.app"          # Main site / Record Book
 API_BASE    = f"{HCL_SITE}/api"                        # API base (all data comes from here)
 WELCOME_GIF = "gif.gif"                                # Place gif.gif in the same folder as this script
+
+# ========================= SUPABASE (persistence / fallback) =========================
+SUPABASE_URL   = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY   = os.environ.get("SUPABASE_KEY", "")
+last_sync_time = None  # datetime of last successful full sync
 
 # ========================= CACHE =========================
 players_cache = None
@@ -43,36 +51,142 @@ async def get_players():
         and (now - players_cache_ts) < PLAYERS_CACHE_TTL_SEC
     ):
         return players_cache
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{API_BASE}/players") as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                players_cache = data if isinstance(data, list) else data.get("players", data)
-                players_cache_ts = now
-                return players_cache
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{API_BASE}/players", timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    players_cache = data if isinstance(data, list) else data.get("players", data)
+                    players_cache_ts = now
+                    return players_cache
+    except Exception:
+        pass
+    # Fallback: tenta ler do Supabase
+    sb_data = await fetch_from_supabase("players", "updated_at.desc")
+    if sb_data:
+        players_cache = sb_data
+        players_cache_ts = now
+        return players_cache
     return []
 
 async def get_matches():
     global matches_cache
     if matches_cache:
         return matches_cache
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{API_BASE}/matches") as resp:
-            if resp.status == 200:
-                matches_cache = await resp.json()
-                return matches_cache
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{API_BASE}/matches", timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    matches_cache = await resp.json()
+                    return matches_cache
+    except Exception:
+        pass
+    # Fallback: Supabase
+    sb_data = await fetch_from_supabase("matches", "played_at.desc")
+    if sb_data:
+        matches_cache = sb_data
+        return matches_cache
     return []
 
 async def get_events():
     global events_cache
     if events_cache:
         return events_cache
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{API_BASE}/events") as resp:
-            if resp.status == 200:
-                events_cache = await resp.json()
-                return events_cache
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{API_BASE}/events", timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    events_cache = await resp.json()
+                    return events_cache
+    except Exception:
+        pass
+    # Fallback: Supabase
+    sb_data = await fetch_from_supabase("events", "date.desc")
+    if sb_data:
+        events_cache = sb_data
+        return events_cache
     return []
+
+# ========================= SUPABASE SYNC =========================
+async def sync_table_from_api(endpoint: str, table: str, transform_fn=None):
+    global last_sync_time
+    async with aiohttp.ClientSession() as s:
+        try:
+            async with s.get(f"{API_BASE}/{endpoint}", timeout=aiohttp.ClientTimeout(total=30)) as r:
+                if r.status != 200:
+                    return 0
+                data = await r.json()
+        except Exception:
+            return 0
+    rows = data if isinstance(data, list) else data.get(endpoint, data)
+    if transform_fn:
+        rows = [transform_fn(r) for r in rows]
+    count = await sb.supabase_upsert(table, rows)
+    await sb.record_sync(endpoint, count)
+    last_sync_time = datetime.now(timezone.utc)
+    return count
+
+def transform_player(p):
+    return {
+        "id": p.get("id"),
+        "username": p.get("username") or p.get("name") or "Unknown",
+        "name": p.get("name") or p.get("username") or "Unknown",
+        "tier": p.get("tier") or "F",
+        "wins": p.get("wins", 0),
+        "losses": p.get("losses", 0),
+        "kills": p.get("kills", 0),
+        "deaths": p.get("deaths", 0),
+        "region": p.get("region") or "",
+        "platform": p.get("platform") or "PC",
+        "affiliation": p.get("affiliation") or "",
+        "available": p.get("available", False),
+        "hidden": p.get("hiddenFromLeaderboard", False),
+        "previous_tier": p.get("previousTier") or "",
+        "avatar_data": p.get("avatar") or "",
+        "match_history": p.get("matchHistory") or [],
+    }
+
+def transform_match(m):
+    return {
+        "id": m.get("id"),
+        "event": m.get("event") or "",
+        "played_at": m.get("playedAt") or None,
+        "side1_playerids": m.get("side1PlayerIds") or [],
+        "side2_playerids": m.get("side2PlayerIds") or [],
+        "side1_score": m.get("side1Score", 0),
+        "side2_score": m.get("side2Score", 0),
+        "winning_side": m.get("winningSide", 0),
+        "status": m.get("status") or "completed",
+        "recording_url": m.get("recordingUrl") or "",
+    }
+
+def transform_event(e):
+    return {
+        "id": e.get("id"),
+        "name": e.get("name") or "Event",
+        "date": e.get("date") or e.get("scheduledTime") or None,
+        "completed": e.get("completed", False),
+        "completed_at": e.get("completedAt") or None,
+        "is_tournament": e.get("isTournament", False),
+        "description": e.get("description") or "",
+        "location": e.get("location") or "",
+    }
+
+async def sync_all_to_supabase():
+    p = await sync_table_from_api("players", "players", transform_player)
+    m = await sync_table_from_api("matches", "matches", transform_match)
+    e = await sync_table_from_api("events", "events", transform_event)
+    return p, m, e
+
+async def supabase_sync_loop():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        await sync_all_to_supabase()
+        await asyncio.sleep(300)
+
+async def fetch_from_supabase(table: str, order: str = None):
+    params = f"?order={order}" if order else ""
+    return await sb.supabase_select(table, params) or []
 
 # ========================= HELPERS =========================
 def get_name(p):
@@ -750,6 +864,12 @@ async def on_ready():
     print(f"✅ HCL Bot ONLINE as {bot.user}!")
     print("Use !panel to post the interactive control panel.")
     print("Use legacy commands: !tierlist !fighters !player !history !matches !events !stats !top !help")
+    # Inicia sync loop com Supabase
+    bot.loop.create_task(supabase_sync_loop())
+    # Sync inicial na primeira inicialização
+    print("🔄 Running initial Supabase sync...")
+    p, m, e = await sync_all_to_supabase()
+    print(f"✅ Supabase initial sync: {p} players, {m} matches, {e} events")
 
 # ========================= WELCOME — NEW CHALLENGER =========================
 WELCOME_CHANNEL_ID    = 1274034491073237086   # 💬-chat
@@ -920,6 +1040,26 @@ async def cmd_refresh(ctx):
     events_cache = None
     await ctx.send("🔄 Cache cleared! Next request will pull fresh data from the API.")
 
+@bot.command(name="supastatus")
+async def cmd_supastatus(ctx):
+    """Shows Supabase sync status."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return await ctx.send("❌ Supabase not configured (missing env vars).")
+    last = None
+    if last_sync_time:
+        last = last_sync_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+    players_db = await sb.supabase_select("players", "?select=id&limit=1")
+    matches_db = await sb.supabase_select("matches", "?select=id&limit=1")
+    events_db = await sb.supabase_select("events", "?select=id&limit=1")
+    embed = discord.Embed(title="🗄️ Supabase Sync Status", color=0x00FF88)
+    embed.add_field(name="Last Sync", value=last or "Never", inline=True)
+    embed.add_field(name="Sync Interval", value="Every 5 min", inline=True)
+    embed.add_field(name="Players (API → DB)", value=f"~{len(players_db or [])} rows", inline=True)
+    embed.add_field(name="Matches (API → DB)", value=f"~{len(matches_db or [])} rows", inline=True)
+    embed.add_field(name="Events (API → DB)", value=f"~{len(events_db or [])} rows", inline=True)
+    embed.add_field(name="Fallback Mode", value="✅ Active" if SUPABASE_URL else "❌ Disabled", inline=True)
+    await ctx.send(embed=embed)
+
 @bot.command(name="help")
 async def cmd_help(ctx):
     embed = discord.Embed(
@@ -936,6 +1076,7 @@ async def cmd_help(ctx):
     embed.add_field(name="!events", value="List of HCL events", inline=False)
     embed.add_field(name="!top [wins|kills|kd]", value="Ex: `!top` | `!top kills`", inline=False)
     embed.add_field(name="!refresh", value="Force a data refresh from the API", inline=False)
+    embed.add_field(name="!supastatus", value="Shows Supabase sync status", inline=False)
     await ctx.send(embed=embed)
 
 # ========================= TOKEN =========================
