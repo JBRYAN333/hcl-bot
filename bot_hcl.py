@@ -118,11 +118,18 @@ async def sync_table_from_api(endpoint: str, table: str, transform_fn=None):
                 data = await r.json()
         except Exception:
             return 0
-    rows = data if isinstance(data, list) else data.get(endpoint, data)
+    raw = data if isinstance(data, list) else data.get(endpoint, data)
+    if not isinstance(raw, list):
+        return 0
     if transform_fn:
-        rows = [transform_fn(r) for r in rows]
+        rows = [transform_fn(r) for r in raw]
+    else:
+        rows = raw
     count = await sb.supabase_upsert(table, rows)
-    await sb.record_sync(endpoint, count)
+    try:
+        await sb.record_sync(endpoint, count)
+    except Exception:
+        pass
     last_sync_time = datetime.now(timezone.utc)
     return count
 
@@ -173,16 +180,39 @@ def transform_event(e):
     }
 
 async def sync_all_to_supabase():
-    p = await sync_table_from_api("players", "players", transform_player)
-    m = await sync_table_from_api("matches", "matches", transform_match)
-    e = await sync_table_from_api("events", "events", transform_event)
+    p = m = e = 0
+    try:
+        p = await sync_table_from_api("players", "players", transform_player)
+    except Exception as ex:
+        print(f"⚠️ Players sync failed: {ex}")
+    try:
+        m = await sync_table_from_api("matches", "matches", transform_match)
+    except Exception as ex:
+        print(f"⚠️ Matches sync failed: {ex}")
+    try:
+        e = await sync_table_from_api("events", "events", transform_event)
+    except Exception as ex:
+        print(f"⚠️ Events sync failed: {ex}")
     return p, m, e
 
 async def supabase_sync_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
-        await sync_all_to_supabase()
+        try:
+            await sync_all_to_supabase()
+        except Exception as e:
+            print(f"⚠️ Supabase sync error: {e}")
         await asyncio.sleep(300)
+
+async def initial_supabase_sync():
+    await bot.wait_until_ready()
+    await asyncio.sleep(5)
+    print("🔄 Running initial Supabase sync...")
+    try:
+        p, m, e = await sync_all_to_supabase()
+        print(f"✅ Supabase initial sync: {p} players, {m} matches, {e} events")
+    except Exception as ex:
+        print(f"⚠️ Initial Supabase sync failed (will retry in background): {ex}")
 
 async def fetch_from_supabase(table: str, order: str = None):
     params = f"?order={order}" if order else ""
@@ -864,12 +894,10 @@ async def on_ready():
     print(f"✅ HCL Bot ONLINE as {bot.user}!")
     print("Use !panel to post the interactive control panel.")
     print("Use legacy commands: !tierlist !fighters !player !history !matches !events !stats !top !help")
-    # Inicia sync loop com Supabase
+    # Inicia sync loop com Supabase (background — não bloqueia)
     bot.loop.create_task(supabase_sync_loop())
-    # Sync inicial na primeira inicialização
-    print("🔄 Running initial Supabase sync...")
-    p, m, e = await sync_all_to_supabase()
-    print(f"✅ Supabase initial sync: {p} players, {m} matches, {e} events")
+    # Sync inicial leve — se falhar, o background tenta de novo
+    bot.loop.create_task(initial_supabase_sync())
 
 # ========================= WELCOME — NEW CHALLENGER =========================
 WELCOME_CHANNEL_ID    = 1274034491073237086   # 💬-chat

@@ -25,12 +25,19 @@ async def supabase_upsert(table: str, rows: list[dict]):
     if not rows:
         return 0
     url = f"{SUPABASE_URL}/{table}?on_conflict=id"
+    total = 0
+    batch_size = 100
     async with aiohttp.ClientSession() as s:
-        async with s.post(url, headers=HEADERS, json=rows) as r:
-            if r.status in (200, 201):
-                data = await r.json()
-                return len(data) if isinstance(data, list) else 1
-            return 0
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i:i + batch_size]
+            try:
+                async with s.post(url, headers=HEADERS, json=batch, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                    if r.status in (200, 201):
+                        data = await r.json()
+                        total += len(data) if isinstance(data, list) else 1
+            except Exception:
+                pass
+    return total
 
 async def supabase_delete_where_not_in(table: str, ids: list[str]):
     import aiohttp
