@@ -1076,15 +1076,15 @@ async def cmd_supastatus(ctx):
     last = None
     if last_sync_time:
         last = last_sync_time.strftime("%Y-%m-%d %H:%M:%S UTC")
-    players_db = await sb.supabase_select("players", "?select=id&limit=1")
-    matches_db = await sb.supabase_select("matches", "?select=id&limit=1")
-    events_db = await sb.supabase_select("events", "?select=id&limit=1")
+    p_count = await sb.supabase_count("players")
+    m_count = await sb.supabase_count("matches")
+    e_count = await sb.supabase_count("events")
     embed = discord.Embed(title="🗄️ Supabase Sync Status", color=0x00FF88)
     embed.add_field(name="Last Sync", value=last or "Never", inline=True)
     embed.add_field(name="Sync Interval", value="Every 5 min", inline=True)
-    embed.add_field(name="Players (API → DB)", value=f"~{len(players_db or [])} rows", inline=True)
-    embed.add_field(name="Matches (API → DB)", value=f"~{len(matches_db or [])} rows", inline=True)
-    embed.add_field(name="Events (API → DB)", value=f"~{len(events_db or [])} rows", inline=True)
+    embed.add_field(name="Players (API → DB)", value=f"{p_count} rows", inline=True)
+    embed.add_field(name="Matches (API → DB)", value=f"{m_count} rows", inline=True)
+    embed.add_field(name="Events (API → DB)", value=f"{e_count} rows", inline=True)
     embed.add_field(name="Fallback Mode", value="✅ Active" if SUPABASE_URL else "❌ Disabled", inline=True)
     await ctx.send(embed=embed)
 

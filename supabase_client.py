@@ -49,6 +49,19 @@ async def supabase_delete_where_not_in(table: str, ids: list[str]):
         async with s.delete(url, headers=HEADERS) as r:
             return r.status in (200, 204)
 
+async def supabase_count(table: str):
+    import aiohttp
+    url = f"{SUPABASE_URL}/{table}?select=id&limit=5000"
+    async with aiohttp.ClientSession() as s:
+        try:
+            async with s.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    return len(data)
+        except Exception:
+            pass
+    return 0
+
 async def get_last_sync(endpoint: str):
     data = await supabase_select("sync_log", f"?endpoint=eq.{endpoint}&order=synced_at.desc&limit=1")
     if data and len(data) > 0:
