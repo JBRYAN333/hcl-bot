@@ -1,6 +1,7 @@
 discord.py>=2.3.0
 aiohttp
 Pillow
-gspread
-google-auth
+gspread>=6.0.0
+google-auth>=2.27.0
+cryptography>=41.0.0
 python-dotenv
