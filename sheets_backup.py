@@ -16,6 +16,7 @@ Variáveis de ambiente:
 import os
 import json
 import asyncio
+import tempfile
 from datetime import datetime, timezone
 
 import aiohttp
@@ -24,8 +25,17 @@ import gspread
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-GOOGLE_CREDS_PATH = os.environ.get("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
+GOOGLE_CREDS_B64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
 SHEET_ID = os.environ.get("SHEET_ID", "")
+
+def get_credentials():
+    if GOOGLE_CREDS_B64:
+        json_bytes = __import__("base64").b64decode(GOOGLE_CREDS_B64)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(json_bytes.decode("utf-8"))
+            return Credentials.from_service_account_file(f.name, scopes=SCOPES)
+    path = os.environ.get("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
+    return Credentials.from_service_account_file(path, scopes=SCOPES)
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -78,7 +88,7 @@ async def backup_all():
     print(f"   {len(players)} players, {len(matches)} matches, {len(events)} events")
 
     print("🔄 Connecting to Google Sheets...")
-    creds = Credentials.from_service_account_file(GOOGLE_CREDS_PATH, scopes=SCOPES)
+    creds = get_credentials()
     gc = gspread.authorize(creds)
     sh = gc.open_by_key(SHEET_ID)
 
