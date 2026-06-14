@@ -155,7 +155,6 @@ def transform_player(p):
         "hidden": p.get("hiddenFromLeaderboard", False),
         "previous_tier": p.get("previousTier") or "",
         "avatar_data": p.get("avatar") or "",
-        "match_history": p.get("matchHistory") or [],
     }
 
 def transform_match(m):
