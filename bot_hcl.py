@@ -198,17 +198,17 @@ async def sync_all_to_supabase():
 async def supabase_sync_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
-    try:
-        await sync_all_to_supabase()
-        if os.environ.get("SHEET_ID"):
-            try:
-                import sheets_backup
-                await sheets_backup.backup_all()
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"⚠️ Supabase sync error: {e}")
-    await asyncio.sleep(300)
+        try:
+            await sync_all_to_supabase()
+            if os.environ.get("SHEET_ID"):
+                try:
+                    import sheets_backup
+                    await sheets_backup.backup_all()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"⚠️ Supabase sync error: {e}")
+        await asyncio.sleep(300)
 
 async def initial_supabase_sync():
     await bot.wait_until_ready()
