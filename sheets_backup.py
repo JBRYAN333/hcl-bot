@@ -17,6 +17,7 @@ import os
 import json
 import asyncio
 import base64
+import traceback
 from datetime import datetime, timezone
 
 import aiohttp
@@ -41,6 +42,9 @@ def get_gc():
     if GOOGLE_CREDS_B64:
         raw = base64.b64decode(GOOGLE_CREDS_B64).decode("utf-8")
         info = json.loads(raw)
+        pk = info.get("private_key", "")
+        print(f"🔑 Key present: {bool(pk)}, starts with: {pk[:50]}..., ends with: {pk[-30:]}")
+        print(f"📦 gspread v{gspread.__version__}")
         return gspread.service_account_from_dict(info, scopes=SCOPES)
     path = os.environ.get("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
     return gspread.service_account(filename=path)
@@ -77,7 +81,11 @@ def write_sheet(ws, headers: list[str], rows: list[list]):
 
 def _sync_write_to_sheets(players, matches, events):
     print("🔄 Connecting to Google Sheets...")
-    gc = get_gc()
+    try:
+        gc = get_gc()
+    except Exception:
+        traceback.print_exc()
+        raise
     sh = gc.open_by_key(SHEET_ID)
 
     # Aba Players
