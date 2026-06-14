@@ -213,7 +213,7 @@ async def supabase_sync_loop():
 async def initial_supabase_sync():
     await bot.wait_until_ready()
     await asyncio.sleep(5)
-    print("🔄 Running initial Supabase sync...")
+    print("🔄 Running initial sync (Supabase + Sheets)...")
     try:
         p, m, e = await sync_all_to_supabase()
         print(f"✅ Supabase initial sync: {p} players, {m} matches, {e} events")
