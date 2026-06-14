@@ -8,7 +8,7 @@ HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "return=representation",
+    "Prefer": "return=representation, resolution=merge-duplicates",
 }
 
 async def supabase_select(table: str, params: str = ""):
@@ -34,7 +34,7 @@ async def supabase_upsert(table: str, rows: list[dict]):
         for i in range(0, len(rows), batch_size):
             batch = rows[i:i + batch_size]
             try:
-                async with s.post(url, headers=HEADERS, json=batch, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                async with s.post(url, headers=HEADERS, json=batch, timeout=aiohttp.ClientTimeout(total=60)) as r:
                     if r.status in (200, 201):
                         data = await r.json()
                         total += len(data) if isinstance(data, list) else 1

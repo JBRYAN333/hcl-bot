@@ -48,7 +48,8 @@ SCOPES = [
 ]
 
 async def fetch_table(table: str) -> list[dict]:
-    url = f"{SUPABASE_URL}/{table}?limit=5000"
+    sep = "&" if "?" in table else "?"
+    url = f"{SUPABASE_URL}/{table}{sep}limit=5000"
     async with aiohttp.ClientSession() as s:
         async with s.get(url, headers=HEADERS) as r:
             if r.status == 200:
