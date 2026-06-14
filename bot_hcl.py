@@ -114,18 +114,23 @@ async def sync_table_from_api(endpoint: str, table: str, transform_fn=None):
         try:
             async with s.get(f"{API_BASE}/{endpoint}", timeout=aiohttp.ClientTimeout(total=30)) as r:
                 if r.status != 200:
+                    print(f"⚠️ {endpoint} API returned {r.status}")
                     return 0
                 data = await r.json()
-        except Exception:
+        except Exception as ex:
+            print(f"⚠️ {endpoint} API request failed: {ex}")
             return 0
     raw = data if isinstance(data, list) else data.get(endpoint, data)
     if not isinstance(raw, list):
+        print(f"⚠️ {endpoint} unexpected format: {type(data).__name__}")
         return 0
+    print(f"📦 {endpoint}: {len(raw)} items from API")
     if transform_fn:
         rows = [transform_fn(r) for r in raw]
     else:
         rows = raw
     count = await sb.supabase_upsert(table, rows)
+    print(f"💾 {endpoint}: upserted {count} rows to Supabase")
     try:
         await sb.record_sync(endpoint, count)
     except Exception:

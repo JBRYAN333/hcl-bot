@@ -53,6 +53,9 @@ async def fetch_table(table: str) -> list[dict]:
         async with s.get(url, headers=HEADERS) as r:
             if r.status == 200:
                 return await r.json()
+            elif r.status >= 400:
+                text = await r.text()
+                print(f"⚠️ Sheets fetch {table} — HTTP {r.status}: {text[:200]}")
     return []
 
 def flatten(obj: dict) -> list:

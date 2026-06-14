@@ -18,6 +18,9 @@ async def supabase_select(table: str, params: str = ""):
         async with s.get(url, headers=HEADERS) as r:
             if r.status == 200:
                 return await r.json()
+            elif r.status >= 400:
+                text = await r.text()
+                print(f"⚠️ Supabase select {table} — HTTP {r.status}: {text[:200]}")
             return None
 
 async def supabase_upsert(table: str, rows: list[dict]):
@@ -35,8 +38,11 @@ async def supabase_upsert(table: str, rows: list[dict]):
                     if r.status in (200, 201):
                         data = await r.json()
                         total += len(data) if isinstance(data, list) else 1
-            except Exception:
-                pass
+                    elif r.status >= 400:
+                        text = await r.text()
+                        print(f"⚠️ Supabase upsert {table} batch {i} — HTTP {r.status}: {text[:200]}")
+            except Exception as ex:
+                print(f"⚠️ Supabase upsert {table} batch {i} — exception: {ex}")
     return total
 
 async def supabase_delete_where_not_in(table: str, ids: list[str]):
@@ -58,8 +64,11 @@ async def supabase_count(table: str):
                 if r.status == 200:
                     data = await r.json()
                     return len(data)
-        except Exception:
-            pass
+                elif r.status >= 400:
+                    text = await r.text()
+                    print(f"⚠️ Supabase count {table} — HTTP {r.status}: {text[:200]}")
+        except Exception as ex:
+            print(f"⚠️ Supabase count {table} — exception: {ex}")
     return 0
 
 async def get_last_sync(endpoint: str):
