@@ -60,7 +60,6 @@ async def fetch_table(table: str) -> list[dict]:
     return []
 
 def flatten(obj: dict) -> list:
-    """Converte uma linha com campos aninhados em valores planos para a planilha."""
     row = []
     for v in obj.values():
         if isinstance(v, (dict, list)):
@@ -78,19 +77,8 @@ def write_sheet(ws, headers: list[str], rows: list[list]):
     else:
         ws.append_rows([headers], value_input_option="USER_ENTERED")
 
-async def backup_all():
-    if not all([SUPABASE_URL, SUPABASE_KEY, SHEET_ID]):
-        print("❌ Missing SUPABASE_URL, SUPABASE_KEY or SHEET_ID")
-        return
-
-    print("🔄 Fetching data from Supabase...")
-    players, matches, events = await asyncio.gather(
-        fetch_table("players"),
-        fetch_table("matches?order=played_at.desc"),
-        fetch_table("events?order=date.desc"),
-    )
-    print(f"   {len(players)} players, {len(matches)} matches, {len(events)} events")
-
+def _sync_write_to_sheets(players, matches, events):
+    """Parte síncrona (gspread) — roda em thread separada."""
     print("🔄 Connecting to Google Sheets...")
     creds = get_credentials()
     gc = gspread.authorize(creds)
@@ -99,7 +87,7 @@ async def backup_all():
     # Aba Players
     p_headers = ["id", "username", "name", "tier", "wins", "losses", "kills", "deaths",
                   "region", "platform", "affiliation", "available", "hidden",
-                  "previous_tier", "match_history", "updated_at"]
+                  "previous_tier", "updated_at"]
     p_rows = [flatten({h: p.get(h) for h in p_headers}) for p in players]
     ws_p = sh.worksheet("Players") if "Players" in [ws.title for ws in sh.worksheets()] else sh.add_worksheet("Players", 1000, 20)
     write_sheet(ws_p, p_headers, p_rows)
@@ -121,6 +109,21 @@ async def backup_all():
     print(f"   ✅ Events sheet updated ({len(e_rows)} rows)")
 
     print(f"\n✅ Backup completo — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
+
+async def backup_all():
+    if not all([SUPABASE_URL, SUPABASE_KEY, SHEET_ID]):
+        print("❌ Missing SUPABASE_URL, SUPABASE_KEY or SHEET_ID")
+        return
+
+    print("🔄 Fetching data from Supabase...")
+    players, matches, events = await asyncio.gather(
+        fetch_table("players"),
+        fetch_table("matches?order=played_at.desc"),
+        fetch_table("events?order=date.desc"),
+    )
+    print(f"   {len(players)} players, {len(matches)} matches, {len(events)} events")
+
+    await asyncio.to_thread(_sync_write_to_sheets, players, matches, events)
 
 if __name__ == "__main__":
     asyncio.run(backup_all())

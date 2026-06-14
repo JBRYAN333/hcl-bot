@@ -154,7 +154,7 @@ def transform_player(p):
         "available": p.get("available", False),
         "hidden": p.get("hiddenFromLeaderboard", False),
         "previous_tier": p.get("previousTier") or "",
-        "avatar_data": p.get("avatar") or "",
+        # avatar_data omitido — grandes demais, causa timeout no upsert
     }
 
 def transform_match(m):
