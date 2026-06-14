@@ -29,12 +29,12 @@ async def supabase_upsert(table: str, rows: list[dict]):
         return 0
     url = f"{SUPABASE_URL}/{table}?on_conflict=id"
     total = 0
-    batch_size = 100
+    batch_size = 20
     async with aiohttp.ClientSession() as s:
         for i in range(0, len(rows), batch_size):
             batch = rows[i:i + batch_size]
             try:
-                async with s.post(url, headers=HEADERS, json=batch, timeout=aiohttp.ClientTimeout(total=60)) as r:
+                async with s.post(url, headers=HEADERS, json=batch, timeout=aiohttp.ClientTimeout(total=120)) as r:
                     if r.status in (200, 201):
                         data = await r.json()
                         total += len(data) if isinstance(data, list) else 1

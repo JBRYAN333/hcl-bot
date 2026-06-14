@@ -51,7 +51,7 @@ async def fetch_table(table: str) -> list[dict]:
     sep = "&" if "?" in table else "?"
     url = f"{SUPABASE_URL}/{table}{sep}limit=5000"
     async with aiohttp.ClientSession() as s:
-        async with s.get(url, headers=HEADERS) as r:
+        async with s.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=120)) as r:
             if r.status == 200:
                 return await r.json()
             elif r.status >= 400:
@@ -85,7 +85,7 @@ async def backup_all():
 
     print("🔄 Fetching data from Supabase...")
     players, matches, events = await asyncio.gather(
-        fetch_table("players?order=username.asc"),
+        fetch_table("players"),
         fetch_table("matches?order=played_at.desc"),
         fetch_table("events?order=date.desc"),
     )
