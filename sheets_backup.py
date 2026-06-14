@@ -27,6 +27,11 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 GOOGLE_CREDS_B64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
 SHEET_ID = os.environ.get("SHEET_ID", "")
 
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+}
+
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
