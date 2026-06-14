@@ -20,7 +20,6 @@ import base64
 from datetime import datetime, timezone
 
 import aiohttp
-from google.oauth2.service_account import Credentials
 import gspread
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -28,25 +27,18 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 GOOGLE_CREDS_B64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
 SHEET_ID = os.environ.get("SHEET_ID", "")
 
-def get_credentials():
-    if GOOGLE_CREDS_B64:
-        raw = base64.b64decode(GOOGLE_CREDS_B64).decode("utf-8")
-        info = json.loads(raw)
-        if "private_key" in info:
-            info["private_key"] = info["private_key"].replace("\\n", "\n")
-        return Credentials.from_service_account_info(info, scopes=SCOPES)
-    path = os.environ.get("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
-    return Credentials.from_service_account_file(path, scopes=SCOPES)
-
-HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-}
-
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+def get_gc():
+    if GOOGLE_CREDS_B64:
+        raw = base64.b64decode(GOOGLE_CREDS_B64).decode("utf-8")
+        info = json.loads(raw)
+        return gspread.service_account_from_dict(info, scopes=SCOPES)
+    path = os.environ.get("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
+    return gspread.service_account(filename=path)
 
 async def fetch_table(table: str) -> list[dict]:
     sep = "&" if "?" in table else "?"
@@ -79,10 +71,8 @@ def write_sheet(ws, headers: list[str], rows: list[list]):
         ws.append_rows([headers], value_input_option="USER_ENTERED")
 
 def _sync_write_to_sheets(players, matches, events):
-    """Parte síncrona (gspread) — roda em thread separada."""
     print("🔄 Connecting to Google Sheets...")
-    creds = get_credentials()
-    gc = gspread.authorize(creds)
+    gc = get_gc()
     sh = gc.open_by_key(SHEET_ID)
 
     # Aba Players
