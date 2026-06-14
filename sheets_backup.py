@@ -16,7 +16,7 @@ Variáveis de ambiente:
 import os
 import json
 import asyncio
-import tempfile
+import base64
 from datetime import datetime, timezone
 
 import aiohttp
@@ -30,10 +30,8 @@ SHEET_ID = os.environ.get("SHEET_ID", "")
 
 def get_credentials():
     if GOOGLE_CREDS_B64:
-        json_bytes = __import__("base64").b64decode(GOOGLE_CREDS_B64)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write(json_bytes.decode("utf-8"))
-            return Credentials.from_service_account_file(f.name, scopes=SCOPES)
+        info = json.loads(base64.b64decode(GOOGLE_CREDS_B64).decode("utf-8"))
+        return Credentials.from_service_account_info(info, scopes=SCOPES)
     path = os.environ.get("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
     return Credentials.from_service_account_file(path, scopes=SCOPES)
 
