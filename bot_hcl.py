@@ -208,8 +208,8 @@ async def supabase_sync_loop():
                 try:
                     import sheets_backup
                     await sheets_backup.backup_all()
-                except Exception:
-                    pass
+                except Exception as sheets_ex:
+                    print(f"⚠️ Sheets backup error: {sheets_ex}")
         except Exception as e:
             print(f"⚠️ Supabase sync error: {e}")
         await asyncio.sleep(300)

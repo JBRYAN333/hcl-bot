@@ -123,7 +123,8 @@ async def backup_all():
     )
     print(f"   {len(players)} players, {len(matches)} matches, {len(events)} events")
 
-    await asyncio.to_thread(_sync_write_to_sheets, players, matches, events)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _sync_write_to_sheets, players, matches, events)
 
 if __name__ == "__main__":
     asyncio.run(backup_all())
