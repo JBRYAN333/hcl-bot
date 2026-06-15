@@ -816,8 +816,10 @@ class MatchesNavView(ui.View):
             color=0xFF0000
         )
         for m in self.matches[start:start + self.per_page]:
-            p1 = player_id_to_name((m.get("side1PlayerIds") or ["?"])[0], self.players)
-            p2 = player_id_to_name((m.get("side2PlayerIds") or ["?"])[0], self.players)
+            side1 = [player_id_to_name(pid, self.players) for pid in (m.get("side1PlayerIds") or ["?"])]
+            side2 = [player_id_to_name(pid, self.players) for pid in (m.get("side2PlayerIds") or ["?"])]
+            p1 = " / ".join(side1)
+            p2 = " / ".join(side2)
             score = f"{m.get('side1Score','?')}-{m.get('side2Score','?')}"
             winner = p1 if m.get("winningSide") == 1 else p2
             vod = m.get("recordingUrl")
