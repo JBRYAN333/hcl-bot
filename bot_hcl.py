@@ -393,7 +393,9 @@ class HCLMainPanel(ui.View):
             description="Select a filter below to browse the roster:",
             color=0x0055FF
         )
-        await interaction.response.edit_message(embed=embed, view=FightersFilterView())
+        players = await get_players()
+        opts = build_affiliation_options(players)
+        await interaction.response.edit_message(embed=embed, view=FightersFilterView(opts))
 
     @ui.button(label="👤 Player Lookup", style=discord.ButtonStyle.success, custom_id="hcl_player", row=0)
     async def btn_player(self, interaction: discord.Interaction, button: ui.Button):
@@ -812,11 +814,11 @@ class BackToTierView(ui.View):
 
 # ---------- Fighters Filter View ----------
 class FightersFilterView(ui.View):
-    def __init__(self):
+    def __init__(self, affiliation_options: list[discord.SelectOption]):
         super().__init__(timeout=None)
         self.add_item(FightersRegionSelect())
         self.add_item(FightersTierSelect())
-        self.add_item(FightersAffiliationSelect())
+        self.add_item(FightersAffiliationSelect(affiliation_options))
         self.add_item(FightersBackButton())
 
 class FightersBackButton(ui.Button):
@@ -857,16 +859,26 @@ class FightersTierSelect(ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await send_fighters(interaction, tier=self.values[0])
 
+AFFILIATION_EMOJIS = {
+    "BBK": "🔥", "CHAOS": "💥", "DWO": "⚔️", "SAL": "🛡️",
+}
+
+def build_affiliation_options(players: list[dict]) -> list[discord.SelectOption]:
+    options = [
+        discord.SelectOption(label="All Affiliations", value="ALL", emoji="🤝"),
+        discord.SelectOption(label="No Affiliation", value="NONE", emoji="🚫"),
+    ]
+    seen = set()
+    for p in players:
+        aff = (p.get("affiliation") or "").strip().upper()
+        if aff and aff not in seen:
+            seen.add(aff)
+            emoji = AFFILIATION_EMOJIS.get(aff, "🏷️")
+            options.append(discord.SelectOption(label=aff, value=aff, emoji=emoji))
+    return options
+
 class FightersAffiliationSelect(ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="All Affiliations", value="ALL", emoji="🤝"),
-            discord.SelectOption(label="No Affiliation", value="NONE", emoji="🚫"),
-            discord.SelectOption(label="BBK", value="BBK", emoji="🔥"),
-            discord.SelectOption(label="CHAOS", value="CHAOS", emoji="💥"),
-            discord.SelectOption(label="DWO", value="DWO", emoji="⚔️"),
-            discord.SelectOption(label="SAL", value="SAL", emoji="🛡️"),
-        ]
+    def __init__(self, options: list[discord.SelectOption]):
         super().__init__(placeholder="🤝 Filter by Affiliation", options=options, custom_id="fighters_affiliation", row=2)
 
     async def callback(self, interaction: discord.Interaction):
@@ -913,8 +925,10 @@ class BackToFightersView(ui.View):
 
     @ui.button(label="🔙 Back to Fighters", style=discord.ButtonStyle.secondary, custom_id="back_to_fighters")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
+        players = await get_players()
+        opts = build_affiliation_options(players)
         embed = discord.Embed(title="🥊 Fighters", description="Select a filter below to browse the roster:", color=0x0055FF)
-        await interaction.response.edit_message(embed=embed, view=FightersFilterView())
+        await interaction.response.edit_message(embed=embed, view=FightersFilterView(opts))
 
 
 # ---------- Player Lookup Modal ----------
@@ -1174,7 +1188,9 @@ async def cmd_tierlist(ctx, filter: str = None):
 
 @bot.command(name="fighters")
 async def cmd_fighters(ctx, *args):
-    await ctx.send("Filter fighters by:", view=FightersFilterView())
+    players = await get_players()
+    opts = build_affiliation_options(players)
+    await ctx.send("Filter fighters by:", view=FightersFilterView(opts))
 
 @bot.command(name="player")
 async def cmd_player(ctx, *, name: str = None):
