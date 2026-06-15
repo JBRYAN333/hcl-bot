@@ -368,7 +368,7 @@ def build_main_panel_embed():
     embed.add_field(name="📊 Stats", value="General HCL statistics", inline=True)
     embed.add_field(name="🏅 Rankings", value="Top fighters by wins/kills/K/D", inline=True)
     embed.add_field(name="🔄 Refresh", value="Refresh data from the API", inline=True)
-    embed.add_field(name="📜 Temporadas Anteriores", value="Season 1, Season 2, All-Time stats", inline=True)
+    embed.add_field(name="📜 Past Seasons", value="Season 1, Season 2, All-Time stats", inline=True)
     embed.set_footer(text=f"HCL Bot • {HCL_SITE}")
     return embed
 
@@ -483,11 +483,11 @@ class HCLMainPanel(ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=BackToMainView())
 
-    @ui.button(label="📜 Temporadas Anteriores", style=discord.ButtonStyle.secondary, custom_id="hcl_seasons", row=3)
+    @ui.button(label="📜 Past Seasons", style=discord.ButtonStyle.secondary, custom_id="hcl_seasons", row=3)
     async def btn_seasons(self, interaction: discord.Interaction, button: ui.Button):
         embed = discord.Embed(
-            title="📜 Temporadas Anteriores",
-            description="Selecione uma temporada para visualizar os rankings históricos.",
+            title="📜 Past Seasons",
+            description="Select a season to view historical rankings.",
             color=0xAA88FF
         )
         await interaction.response.edit_message(embed=embed, view=LegacySeasonsView())
@@ -505,20 +505,6 @@ class BackToMainView(ui.View):
 
 # ========================= LEGACY SEASONS =========================
 
-def build_season_embed(data: list[dict], title: str, region: str = ""):
-    """Constrói embed para lista de fighters de uma temporada."""
-    embed = discord.Embed(
-        title=title,
-        description=region or "",
-        color=0xAA88FF
-    )
-    for f in data[:25]:
-        line = f"**{f['name']}** — W:{f['w']} L:{f['l']} | K:{f['k']} D:{f['d']} | Rtg:{f.get('rating','?')}"
-        embed.add_field(name="", value=line, inline=False)
-    if len(data) > 25:
-        embed.set_footer(text=f"Mostrando 25 de {len(data)} fighters")
-    return embed
-
 
 class LegacySeasonsView(ui.View):
     def __init__(self):
@@ -529,14 +515,14 @@ class LegacySeasonsView(ui.View):
         await interaction.response.defer()
         data = await legacy.fetch_all_season1()
         if not data:
-            return await interaction.followup.send("❌ Não foi possível carregar a Season 1.", ephemeral=True)
-        regions = {"SA": [], "NA": [], "EU": []}
+            return await interaction.followup.send("❌ Could not load Season 1.", ephemeral=True)
+        regions = {}
         for f in data:
             r = f.get("region", "?")
-            if r in regions:
-                regions[r].append(f)
+            regions.setdefault(r, []).append(f)
         embed = discord.Embed(title="🏆 Season 1 Regional", color=0xAA88FF)
-        for r, fighters in regions.items():
+        for r in legacy.S1_REGION_ORDER:
+            fighters = regions.get(r, [])
             top = fighters[:5]
             lines = "\n".join(f"{f['name']} — W:{f['w']} L:{f['l']}" for f in top)
             embed.add_field(name=f"🌎 {r} — {len(fighters)} fighters", value=lines or "—", inline=False)
@@ -545,7 +531,7 @@ class LegacySeasonsView(ui.View):
     @ui.button(label="🌍 Season 2 Global", style=discord.ButtonStyle.success, custom_id="legacy_s2", row=0)
     async def btn_s2(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
-        tabs = ["GLBL", "SA", "NA", "EU"]
+        tabs = legacy.S2_REGION_ORDER
         all_data = []
         for tab in tabs:
             fighters = await legacy.fetch_season2_tab(tab)
@@ -553,7 +539,7 @@ class LegacySeasonsView(ui.View):
                 f["region"] = tab
             all_data.append(fighters)
         if not any(all_data):
-            return await interaction.followup.send("❌ Não foi possível carregar a Season 2.", ephemeral=True)
+            return await interaction.followup.send("❌ Could not load Season 2.", ephemeral=True)
         embed = discord.Embed(title="🌍 Season 2 Global", color=0xAA88FF)
         for i, tab in enumerate(tabs):
             fighters = all_data[i]
@@ -567,17 +553,11 @@ class LegacySeasonsView(ui.View):
         await interaction.response.defer()
         data = await legacy.fetch_alltime()
         if not data:
-            return await interaction.followup.send("❌ Não foi possível carregar All-Time.", ephemeral=True)
-        embed = discord.Embed(title="📊 All-Time Ranking", description=f"{len(data)} fighters de todas as temporadas", color=0xFFAA00)
-        for f in data[:25]:
-            label = f["name"]
-            seasons = ", ".join(sorted(f["seasons"]))
-            embed.add_field(name="", value=f"**{label}** — W:{f['w']} L:{f['l']} | K:{f['k']} D:{f['d']} | ({seasons})", inline=False)
-        if len(data) > 25:
-            embed.set_footer(text=f"Mostrando 25 de {len(data)}")
-        await interaction.edit_original_response(embed=embed, view=BackToMainView())
+            return await interaction.followup.send("❌ Could not load All-Time.", ephemeral=True)
+        embed, view = _build_alltime_page(data, 0)
+        await interaction.edit_original_response(embed=embed, view=view)
 
-    @ui.button(label="🔙 Voltar", style=discord.ButtonStyle.secondary, custom_id="legacy_back", row=2)
+    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="legacy_back", row=2)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=build_main_panel_embed(), view=HCLMainPanel())
 
@@ -587,7 +567,7 @@ class LegacyS1View(ui.View):
         super().__init__(timeout=None)
         self.regions = regions
         self.page = page
-        self.region_keys = ["SA", "NA", "EU"]
+        self.region_keys = [r for r in legacy.S1_REGION_ORDER if regions.get(r)]
         self.btn_prev.disabled = page <= 0
         self.btn_next.disabled = page >= len(self.region_keys) - 1
 
@@ -597,28 +577,28 @@ class LegacyS1View(ui.View):
         embed = discord.Embed(title=f"🏆 Season 1 — {r}", description=f"{len(fighters)} fighters", color=0xAA88FF)
         for f in fighters:
             embed.add_field(name="", value=f"**{f['name']}** — W:{f['w']} L:{f['l']} | K:{f['k']} D:{f['d']} | Rtg:{f['rating']}", inline=False)
-        embed.set_footer(text=f"Página {self.page + 1}/{len(self.region_keys)}")
+        embed.set_footer(text=f"Page {self.page + 1}/{len(self.region_keys)}")
         return embed
 
-    @ui.button(label="◀ Anterior", style=discord.ButtonStyle.secondary, custom_id="s1_prev")
+    @ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary, custom_id="s1_prev")
     async def btn_prev(self, interaction: discord.Interaction, button: ui.Button):
         self.page -= 1
         self.btn_prev.disabled = self.page <= 0
         self.btn_next.disabled = self.page >= len(self.region_keys) - 1
         await interaction.response.edit_message(embed=self.build(), view=self)
 
-    @ui.button(label="Próximo ▶", style=discord.ButtonStyle.secondary, custom_id="s1_next")
+    @ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, custom_id="s1_next")
     async def btn_next(self, interaction: discord.Interaction, button: ui.Button):
         self.page += 1
         self.btn_prev.disabled = self.page <= 0
         self.btn_next.disabled = self.page >= len(self.region_keys) - 1
         await interaction.response.edit_message(embed=self.build(), view=self)
 
-    @ui.button(label="🔙 Voltar", style=discord.ButtonStyle.secondary, custom_id="s1_back")
+    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="s1_back")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         embed = discord.Embed(
-            title="📜 Temporadas Anteriores",
-            description="Selecione uma temporada para visualizar os rankings históricos.",
+            title="📜 Past Seasons",
+            description="Select a season to view historical rankings.",
             color=0xAA88FF
         )
         await interaction.response.edit_message(embed=embed, view=LegacySeasonsView())
@@ -639,31 +619,91 @@ class LegacyS2View(ui.View):
         embed = discord.Embed(title=f"🌍 Season 2 — {tab}", description=f"{len(fighters)} fighters", color=0xAA88FF)
         for f in fighters:
             embed.add_field(name="", value=f"**{f['name']}** — W:{f['w']} L:{f['l']} | K:{f['k']} D:{f['d']} | Rtg:{f['rating']}", inline=False)
-        embed.set_footer(text=f"Página {self.page + 1}/{len(self.tabs)}")
+        embed.set_footer(text=f"Page {self.page + 1}/{len(self.tabs)}")
         return embed
 
-    @ui.button(label="◀ Anterior", style=discord.ButtonStyle.secondary, custom_id="s2_prev")
+    @ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary, custom_id="s2_prev")
     async def btn_prev(self, interaction: discord.Interaction, button: ui.Button):
         self.page -= 1
         self.btn_prev.disabled = self.page <= 0
         self.btn_next.disabled = self.page >= len(self.tabs) - 1
         await interaction.response.edit_message(embed=self.build(), view=self)
 
-    @ui.button(label="Próximo ▶", style=discord.ButtonStyle.secondary, custom_id="s2_next")
+    @ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, custom_id="s2_next")
     async def btn_next(self, interaction: discord.Interaction, button: ui.Button):
         self.page += 1
         self.btn_prev.disabled = self.page <= 0
         self.btn_next.disabled = self.page >= len(self.tabs) - 1
         await interaction.response.edit_message(embed=self.build(), view=self)
 
-    @ui.button(label="🔙 Voltar", style=discord.ButtonStyle.secondary, custom_id="s2_back")
+    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="s2_back")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         embed = discord.Embed(
-            title="📜 Temporadas Anteriores",
-            description="Selecione uma temporada para visualizar os rankings históricos.",
+            title="📜 Past Seasons",
+            description="Select a season to view historical rankings.",
             color=0xAA88FF
         )
         await interaction.response.edit_message(embed=embed, view=LegacySeasonsView())
+
+
+class AllTimeView(ui.View):
+    def __init__(self, data: list[dict], page: int):
+        super().__init__(timeout=None)
+        self.data = data
+        self.page = page
+        per_page = 25
+        self.total_pages = max(1, (len(data) + per_page - 1) // per_page)
+        self.btn_prev.disabled = page <= 0
+        self.btn_next.disabled = page >= self.total_pages - 1
+
+    def build(self):
+        per_page = 25
+        start = self.page * per_page
+        end = start + per_page
+        page_data = self.data[start:end]
+        embed = discord.Embed(
+            title="📊 All-Time Ranking",
+            description=f"{len(self.data)} fighters across all seasons",
+            color=0xFFAA00
+        )
+        for f in page_data:
+            seasons = ", ".join(sorted(f["seasons"]))
+            embed.add_field(
+                name="",
+                value=f"**{f['name']}** — W:{f['w']} L:{f['l']} | K:{f['k']} D:{f['d']} | ({seasons})",
+                inline=False
+            )
+        embed.set_footer(text=f"Page {self.page + 1}/{self.total_pages} • {len(self.data)} total")
+        return embed
+
+    @ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary, custom_id="at_prev")
+    async def btn_prev(self, interaction: discord.Interaction, button: ui.Button):
+        self.page -= 1
+        self.btn_prev.disabled = self.page <= 0
+        self.btn_next.disabled = self.page >= self.total_pages - 1
+        await interaction.response.edit_message(embed=self.build(), view=self)
+
+    @ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, custom_id="at_next")
+    async def btn_next(self, interaction: discord.Interaction, button: ui.Button):
+        self.page += 1
+        self.btn_prev.disabled = self.page <= 0
+        self.btn_next.disabled = self.page >= self.total_pages - 1
+        await interaction.response.edit_message(embed=self.build(), view=self)
+
+    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="at_back")
+    async def back(self, interaction: discord.Interaction, button: ui.Button):
+        embed = discord.Embed(
+            title="📜 Past Seasons",
+            description="Select a season to view historical rankings.",
+            color=0xAA88FF
+        )
+        await interaction.response.edit_message(embed=embed, view=LegacySeasonsView())
+
+
+def _build_alltime_page(data: list[dict], page: int):
+    """Helper: returns (embed, AllTimeView) for a given page."""
+    view = AllTimeView(data, page)
+    return view.build(), view
 
 
 # ---------- Tier Select View ----------
@@ -1248,28 +1288,28 @@ async def send_top_ctx(ctx, category: str):
 @bot.command(name="seasons")
 async def cmd_seasons(ctx):
     embed = discord.Embed(
-        title="📜 Temporadas Anteriores",
-        description="Use `!season1`, `!season2` ou `!alltime` para detalhes.\nOu clique no botão no painel `!panel`.",
+        title="📜 Past Seasons",
+        description="Use `!season1`, `!season2` or `!alltime` for details.\nOr use the button in `!panel`.",
         color=0xAA88FF
     )
     embed.add_field(name="🏆 !season1", value="Season 1 Regional (SA, NA, EU)", inline=False)
     embed.add_field(name="🌍 !season2", value="Season 2 Global (GLBL, SA, NA, EU)", inline=False)
-    embed.add_field(name="📊 !alltime", value="Totais agregados de todas as temporadas", inline=False)
+    embed.add_field(name="📊 !alltime", value="Aggregated totals across all seasons", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command(name="season1")
 async def cmd_season1(ctx):
-    await ctx.send("🔄 Carregando Season 1...")
+    await ctx.send("🔄 Loading Season 1...")
     data = await legacy.fetch_all_season1()
     if not data:
-        return await ctx.send("❌ Não foi possível carregar a Season 1.")
-    regions = {"SA": [], "NA": [], "EU": []}
+        return await ctx.send("❌ Could not load Season 1.")
+    regions = {}
     for f in data:
         r = f.get("region", "?")
-        if r in regions:
-            regions[r].append(f)
+        regions.setdefault(r, []).append(f)
     embed = discord.Embed(title="🏆 Season 1 Regional", color=0xAA88FF)
-    for r, fighters in regions.items():
+    for r in legacy.S1_REGION_ORDER:
+        fighters = regions.get(r, [])
         top = fighters[:5]
         lines = "\n".join(f"{f['name']} — W:{f['w']} L:{f['l']}" for f in top)
         embed.add_field(name=f"🌎 {r} — {len(fighters)} fighters", value=lines or "—", inline=False)
@@ -1277,8 +1317,8 @@ async def cmd_season1(ctx):
 
 @bot.command(name="season2")
 async def cmd_season2(ctx):
-    await ctx.send("🔄 Carregando Season 2...")
-    tabs = ["GLBL", "SA", "NA", "EU"]
+    await ctx.send("🔄 Loading Season 2...")
+    tabs = legacy.S2_REGION_ORDER
     all_data = []
     for tab in tabs:
         fighters = await legacy.fetch_season2_tab(tab)
@@ -1286,7 +1326,7 @@ async def cmd_season2(ctx):
             f["region"] = tab
         all_data.append(fighters)
     if not any(all_data):
-        return await ctx.send("❌ Não foi possível carregar a Season 2.")
+        return await ctx.send("❌ Could not load Season 2.")
     embed = discord.Embed(title="🌍 Season 2 Global", color=0xAA88FF)
     for i, tab in enumerate(tabs):
         fighters = all_data[i]
@@ -1297,17 +1337,12 @@ async def cmd_season2(ctx):
 
 @bot.command(name="alltime")
 async def cmd_alltime(ctx):
-    await ctx.send("🔄 Carregando All-Time...")
+    await ctx.send("🔄 Loading All-Time...")
     data = await legacy.fetch_alltime()
     if not data:
-        return await ctx.send("❌ Não foi possível carregar All-Time.")
-    embed = discord.Embed(title="📊 All-Time Ranking", description=f"{len(data)} fighters de todas as temporadas", color=0xFFAA00)
-    for f in data[:25]:
-        seasons = ", ".join(sorted(f["seasons"]))
-        embed.add_field(name="", value=f"**{f['name']}** — W:{f['w']} L:{f['l']} | K:{f['k']} D:{f['d']} | ({seasons})", inline=False)
-    if len(data) > 25:
-        embed.set_footer(text=f"Mostrando 25 de {len(data)}")
-    await ctx.send(embed=embed)
+        return await ctx.send("❌ Could not load All-Time.")
+    embed, view = _build_alltime_page(data, 0)
+    await ctx.send(embed=embed, view=view)
 
 @bot.command(name="refresh")
 async def cmd_refresh(ctx):
@@ -1355,10 +1390,10 @@ async def cmd_help(ctx):
     embed.add_field(name="!top [wins|kills|kd]", value="Ex: `!top` | `!top kills`", inline=False)
     embed.add_field(name="!refresh", value="Force a data refresh from the API", inline=False)
     embed.add_field(name="!supastatus", value="Shows Supabase sync status", inline=False)
-    embed.add_field(name="!seasons", value="Lista temporadas anteriores disponíveis", inline=False)
-    embed.add_field(name="!season1", value="Ranking Season 1 Regional", inline=False)
-    embed.add_field(name="!season2", value="Ranking Season 2 Global", inline=False)
-    embed.add_field(name="!alltime", value="Totais agregados de todas as temporadas", inline=False)
+    embed.add_field(name="!seasons", value="List available past seasons", inline=False)
+    embed.add_field(name="!season1", value="Season 1 Regional rankings", inline=False)
+    embed.add_field(name="!season2", value="Season 2 Global rankings", inline=False)
+    embed.add_field(name="!alltime", value="Aggregated totals across all seasons", inline=False)
     await ctx.send(embed=embed)
 
 # ========================= TOKEN =========================
