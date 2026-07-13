@@ -1308,7 +1308,7 @@ class HistoryLookupModal(ui.Modal, title="📜 Match History Lookup"):
 
 # ---------- Matches Navigation (pagination) ----------
 class MatchesNavView(ui.View):
-    def __init__(self, matches: list, players: list, page: int, sort_by: str = "date"):
+    def __init__(self, matches: list, players: list, page: int, sort_by: str = "event"):
         super().__init__(timeout=None)
         self.players = players
         self.page = page
