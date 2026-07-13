@@ -814,25 +814,43 @@ class TierSelectView(ui.View):
         for p in visible:
             t = p.get("tier") or "F"
             tiers.setdefault(t, []).append(p)
-        # Build one combined embed with all tiers
-        embed = discord.Embed(title="📋 HCL Full Tier List", color=0xFFD700)
+        all_entries = []
         for tier in TIER_ORDER:
             if tier not in tiers:
                 continue
-            emoji = get_tier_emoji(tier)
-            lines = []
             for p in tiers[tier]:
-                aff = get_affiliation(p)
-                aff_str = f" *{aff}*" if aff else ""
-                lines.append(f"**{get_name(p)}**{aff_str}  `{get_record(p)}`")
-            embed.add_field(
-                name=f"{emoji} {tier} ({len(tiers[tier])})",
-                value="\n".join(lines) or "—",
-                inline=False
-            )
-        await interaction.edit_original_response(embed=embed, view=BackToTierView())
+                all_entries.append((tier, p))
+        total = len(all_entries)
+        if total <= 25:
+            embed = discord.Embed(title="📋 HCL Full Tier List", color=0xFFD700)
+            for tier in TIER_ORDER:
+                if tier not in tiers:
+                    continue
+                emoji = get_tier_emoji(tier)
+                lines = []
+                for p in tiers[tier]:
+                    aff = get_affiliation(p)
+                    aff_str = f" *{aff}*" if aff else ""
+                    lines.append(f"**{get_name(p)}**{aff_str}  `{get_record(p)}`")
+                embed.add_field(name=f"{emoji} {tier} ({len(tiers[tier])})", value="\n".join(lines) or "—", inline=False)
+            await interaction.edit_original_response(embed=embed, view=BackToTierView())
+        else:
+            view = RosterNavView(all_entries, 0, TIER_ORDER)
+            await interaction.edit_original_response(embed=view.build_embed(), view=view)
 
-    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="tier_back", row=2)
+    @ui.button(label="👥 All Fighters", style=discord.ButtonStyle.secondary, custom_id="tier_all_fighters", row=3)
+    async def tier_all_fighters(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.defer()
+        players = await get_players()
+        all_players = sorted(players, key=lambda p: (["Champion", "S", "A", "B", "C", "D", "F"].index(p.get("tier")) if p.get("tier") in ["Champion", "S", "A", "B", "C", "D", "F"] else 99, get_name(p)))
+        TIER_ORDER = ["Champion", "S", "A", "B", "C", "D", "F"]
+        entries = []
+        for p in all_players:
+            entries.append((p.get("tier") or "F", p))
+        view = RosterNavView(entries, 0, TIER_ORDER, show_unavailable=True)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+
+    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="tier_back", row=3)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=build_main_panel_embed(), view=HCLMainPanel())
 
@@ -861,7 +879,82 @@ class TierSelectView(ui.View):
         if not filtered:
             embed = discord.Embed(title=f"{get_tier_emoji(tier)} {tier} Tier", description="❌ No players in this tier.", color=get_tier_color(tier))
             return await interaction.edit_original_response(embed=embed, view=BackToTierView())
-        await interaction.edit_original_response(embed=build_tier_embed(tier, filtered), view=BackToTierView())
+        total = len(filtered)
+        if total <= 25:
+            await interaction.edit_original_response(embed=build_tier_embed(tier, filtered), view=BackToTierView())
+        else:
+            entries = [(tier, p) for p in filtered]
+            view = RosterNavView(entries, 0, [tier])
+            await interaction.edit_original_response(embed=view.build_embed(), view=view)
+
+
+# ---------- Paginated Roster Navigation ----------
+class RosterNavView(ui.View):
+    def __init__(self, entries: list, page: int, tier_order: list[str], show_unavailable: bool = False):
+        super().__init__(timeout=None)
+        self.entries = entries
+        self.page = page
+        self.tier_order = tier_order
+        self.show_unavailable = show_unavailable
+        self.per_page = 25
+        self.total_pages = max(1, (len(entries) + self.per_page - 1) // self.per_page)
+        self.btn_prev.disabled = page <= 0
+        self.btn_next.disabled = page >= self.total_pages - 1
+
+    def build_embed(self):
+        start = self.page * self.per_page
+        end = start + self.per_page
+        page_entries = self.entries[start:end]
+        title = "👥 Full Roster (all players)" if self.show_unavailable else "📋 HCL Full Tier List"
+        embed = discord.Embed(title=title, color=0xFFD700)
+        embed.set_footer(text=f"Page {self.page + 1}/{self.total_pages} • {len(self.entries)} fighters total")
+        current_tier = None
+        current_lines = []
+        tier_count = {}
+        for tier, p in page_entries:
+            t = tier or "F"
+            tier_count[t] = tier_count.get(t, 0) + 1
+            if t != current_tier and current_lines:
+                emoji = get_tier_emoji(current_tier)
+                embed.add_field(
+                    name=f"{emoji} {current_tier} ({tier_count.get(current_tier, 0)})",
+                    value="\n".join(current_lines) or "—",
+                    inline=False
+                )
+                current_lines = []
+            current_tier = t
+            aff = get_affiliation(p)
+            aff_str = f" *{aff}*" if aff else ""
+            record = get_record(p)
+            avail = "🟢" if player_is_available(p) else "🔴"
+            current_lines.append(f"{avail} **{get_name(p)}**{aff_str}  `{record}`")
+        if current_lines and current_tier:
+            emoji = get_tier_emoji(current_tier)
+            embed.add_field(
+                name=f"{emoji} {current_tier} ({tier_count.get(current_tier, 0)})",
+                value="\n".join(current_lines) or "—",
+                inline=False
+            )
+        return embed
+
+    @ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, custom_id="roster_prev")
+    async def btn_prev(self, interaction: discord.Interaction, button: ui.Button):
+        self.page -= 1
+        self.btn_prev.disabled = self.page <= 0
+        self.btn_next.disabled = self.page >= self.total_pages - 1
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, custom_id="roster_next")
+    async def btn_next(self, interaction: discord.Interaction, button: ui.Button):
+        self.page += 1
+        self.btn_prev.disabled = self.page <= 0
+        self.btn_next.disabled = self.page >= self.total_pages - 1
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="roster_back")
+    async def back(self, interaction: discord.Interaction, button: ui.Button):
+        embed = discord.Embed(title="🏆 Tier List", description="Choose a tier to view:", color=0xFF0000)
+        await interaction.response.edit_message(embed=embed, view=TierSelectView())
 
 
 # Back button that returns to tier selection screen
