@@ -547,7 +547,7 @@ class HCLMainPanel(ui.View):
             emoji = AFF_EMOJIS.get(a.upper(), "🏷️") if a != "None" else ""
             aff_lines.append(f"{emoji} **{a}**: {c}".strip())
         embed.add_field(name="Fighters by Affiliation", value="  ".join(aff_lines), inline=False)
-        embed.add_field(name="🔪 Top 3 Kills", value="\n".join(f"{i+1}. **{get_name(p)}** — {p.get('kills',0)}" for i, p in enumerate(top_kills)), inline=True)
+        embed.add_field(name="☠️ Top 3 Kills", value="\n".join(f"{i+1}. **{get_name(p)}** — {p.get('kills',0)} kills" for i, p in enumerate(top_kills)), inline=True)
         embed.add_field(name="🏆 Top 3 Wins", value="\n".join(f"{i+1}. **{get_name(p)}** — {p.get('wins',0)}" for i, p in enumerate(top_wins)), inline=True)
         await interaction.edit_original_response(embed=embed, view=BackToMainView())
 
@@ -1308,23 +1308,39 @@ class HistoryLookupModal(ui.Modal, title="📜 Match History Lookup"):
 
 # ---------- Matches Navigation (pagination) ----------
 class MatchesNavView(ui.View):
-    def __init__(self, matches: list, players: list, page: int):
+    def __init__(self, matches: list, players: list, page: int, sort_by: str = "date"):
         super().__init__(timeout=None)
-        self.matches = matches
         self.players = players
         self.page = page
+        self.sort_by = sort_by
         self.per_page = 8
-        self.max_page = max(0, (len(matches) - 1) // self.per_page)
+        self._apply_sort(matches)
+        self.max_page = max(0, (len(self.matches) - 1) // self.per_page)
         self._update_buttons()
+
+    def _apply_sort(self, matches):
+        if self.sort_by == "date":
+            self.matches = sorted(
+                matches,
+                key=lambda m: m.get("playedAt") or "", reverse=True
+            )
+        else:
+            self.matches = sorted(
+                matches,
+                key=lambda m: (m.get("event") or "", m.get("playedAt") or "")
+            )
 
     def _update_buttons(self):
         self.btn_prev.disabled = self.page == 0
         self.btn_next.disabled = self.page >= self.max_page
+        self.btn_sort.label = f"📅 By Date" if self.sort_by == "event" else f"📋 By Event"
+        self.btn_sort.style = discord.ButtonStyle.primary if self.sort_by == "event" else discord.ButtonStyle.secondary
 
     def build_embed(self):
         start = self.page * self.per_page
+        order_label = "Most Recent" if self.sort_by == "date" else "By Event"
         embed = discord.Embed(
-            title=f"🥊 HCL Matches  (Page {self.page + 1}/{self.max_page + 1})",
+            title=f"🥊 HCL Matches  (Page {self.page + 1}/{self.max_page + 1})  —  {order_label}",
             color=0xFF0000
         )
         for m in self.matches[start:start + self.per_page]:
@@ -1343,6 +1359,13 @@ class MatchesNavView(ui.View):
                 inline=False
             )
         return embed
+
+    @ui.button(label="📅 By Date", style=discord.ButtonStyle.secondary, custom_id="matches_sort")
+    async def btn_sort(self, interaction: discord.Interaction, button: ui.Button):
+        self.sort_by = "event" if self.sort_by == "date" else "date"
+        self.page = 0
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, custom_id="matches_prev")
     async def btn_prev(self, interaction: discord.Interaction, button: ui.Button):
@@ -1370,7 +1393,7 @@ class TopSelectView(ui.View):
     async def top_wins(self, interaction: discord.Interaction, button: ui.Button):
         await send_top(interaction, "wins")
 
-    @ui.button(label="🔪 Top Kills", style=discord.ButtonStyle.danger, custom_id="top_kills")
+    @ui.button(label="☠️ Top Kills", style=discord.ButtonStyle.danger, custom_id="top_kills")
     async def top_kills(self, interaction: discord.Interaction, button: ui.Button):
         await send_top(interaction, "kills")
 
@@ -1399,15 +1422,15 @@ async def send_top(interaction: discord.Interaction, category: str):
     if category == "kills":
         ranked = sorted(visible, key=lambda p: p.get("kills", 0), reverse=True)
         label = "Kills"
-        val_fn = lambda p: p.get("kills", 0)
+        val_fn = lambda p: f"**{p.get('kills', 0)}** kills"
     elif category == "kd":
         ranked = sorted(visible, key=lambda p: p.get("kills", 0) / max(p.get("deaths", 1), 1), reverse=True)
         label = "K/D"
-        val_fn = lambda p: round(p.get("kills", 0) / max(p.get("deaths", 1), 1), 2)
+        val_fn = lambda p: f"**{round(p.get('kills', 0) / max(p.get('deaths', 1), 1), 2)}**  ({p.get('kills', 0)}K / {p.get('deaths', 0)}D)"
     else:
-        ranked = sorted(visible, key=lambda p: p.get("wins", 0), reverse=True)
+        ranked = sorted(visible, key=lambda p: (-p.get("wins", 0), p.get("losses", 0)))
         label = "Wins"
-        val_fn = lambda p: p.get("wins", 0)
+        val_fn = lambda p: f"**{p.get('wins', 0)}** wins"
     medals = ["🥇", "🥈", "🥉"]
     embed = discord.Embed(title=f"🏆 Top {label} — HCL", color=0xFFAA00)
     for i, p in enumerate(ranked[:15]):
@@ -1415,7 +1438,7 @@ async def send_top(interaction: discord.Interaction, category: str):
         aff_str = f" {get_affiliation_display(p)}" if get_affiliation(p) else ""
         embed.add_field(
             name=f"{medal} {get_name(p)}{aff_str}",
-            value=f"{label}: **{val_fn(p)}**  |  Tier: {p.get('tier','?')}  |  Record: {get_record(p)}",
+            value=f"{val_fn(p)}  |  Tier: {p.get('tier','?')}  |  Record: {get_record(p)}",
             inline=False
         )
     await interaction.edit_original_response(embed=embed, view=TopSelectView())
@@ -1680,13 +1703,13 @@ async def send_top_ctx(ctx, category: str):
     visible = [p for p in players if not p.get("hiddenFromLeaderboard")]
     if category == "kills":
         ranked = sorted(visible, key=lambda p: p.get("kills", 0), reverse=True)
-        label, val_fn = "Kills", lambda p: p.get("kills", 0)
+        label, val_fn = "Kills", lambda p: f"**{p.get('kills', 0)}** kills"
     elif category == "kd":
         ranked = sorted(visible, key=lambda p: p.get("kills", 0) / max(p.get("deaths", 1), 1), reverse=True)
-        label, val_fn = "K/D", lambda p: round(p.get("kills", 0) / max(p.get("deaths", 1), 1), 2)
+        label, val_fn = "K/D", lambda p: f"**{round(p.get('kills', 0) / max(p.get('deaths', 1), 1), 2)}**  ({p.get('kills', 0)}K / {p.get('deaths', 0)}D)"
     else:
-        ranked = sorted(visible, key=lambda p: p.get("wins", 0), reverse=True)
-        label, val_fn = "Wins", lambda p: p.get("wins", 0)
+        ranked = sorted(visible, key=lambda p: (-p.get("wins", 0), p.get("losses", 0)))
+        label, val_fn = "Wins", lambda p: f"**{p.get('wins', 0)}** wins"
     medals = ["🥇", "🥈", "🥉"]
     embed = discord.Embed(title=f"🏆 Top {label} — HCL", color=0xFFAA00)
     for i, p in enumerate(ranked[:15]):
@@ -1694,7 +1717,7 @@ async def send_top_ctx(ctx, category: str):
         aff_str = f" {get_affiliation_display(p)}" if get_affiliation(p) else ""
         embed.add_field(
             name=f"{medal} {get_name(p)}{aff_str}",
-            value=f"{label}: **{val_fn(p)}**  |  Tier: {p.get('tier','?')}  |  Record: {get_record(p)}",
+            value=f"{val_fn(p)}  |  Tier: {p.get('tier','?')}  |  Record: {get_record(p)}",
             inline=False
         )
     await ctx.send(embed=embed, view=TopSelectView())
