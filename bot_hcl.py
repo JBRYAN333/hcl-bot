@@ -1441,7 +1441,9 @@ TIER_WEIGHTS = {
     "Champion": 1.0, "S": 0.85, "A": 0.70, "B": 0.55,
     "C": 0.40, "D": 0.25, "F": 0.10,
 }
-MIN_GOAT_FIGHTS = 5
+MIN_GOAT_FIGHTS = 8
+GOAT_WR_PRIOR_WINS = 3
+GOAT_WR_PRIOR_MP = 6
 
 def compute_hcl_goat(players: list[dict]) -> list[dict]:
     eligible = []
@@ -1471,10 +1473,11 @@ def compute_hcl_goat(players: list[dict]) -> list[dict]:
     max_kd = max(e["kd"] for e in eligible) or 1
     scored = []
     for e in eligible:
-        wr = e["wins"] / e["mp"]
+        # Bayesian shrinkage: puxa WR baixo volume pra média (50%)
+        adj_wr = (e["wins"] + GOAT_WR_PRIOR_WINS) / (e["mp"] + GOAT_WR_PRIOR_MP)
         score = (
             e["tier_weight"] * 0.30
-            + wr * 0.25
+            + adj_wr * 0.25
             + (e["kd"] / max_kd) * 0.20
             + (e["wins"] / max_wins) * 0.15
             + (e["mp"] / max_mp) * 0.10
@@ -1488,7 +1491,7 @@ def compute_hcl_goat(players: list[dict]) -> list[dict]:
 def build_goat_embed(goat_data: list) -> discord.Embed:
     e = discord.Embed(
         title="🐐 HCL GOAT Rankings",
-        description="Greatest of All Time — scored by tier, win rate, K/D, wins and match volume.",
+        description="Greatest of All Time — scored by tier, adjusted win rate (Bayesian), K/D, wins and match volume. Minimum 8 fights.",
         color=0xFFD700
     )
     for rank, (score, p) in enumerate(goat_data[:15], 1):
@@ -1504,7 +1507,7 @@ def build_goat_embed(goat_data: list) -> discord.Embed:
             ),
             inline=False
         )
-    e.set_footer(text="GOAT formula: Tier(30%) + WR(25%) + K/D(20%) + Wins(15%) + MP(10%) | Min 5 fights | Champions ranked first")
+    e.set_footer(text="GOAT: Tier(30%) + Adj.WR(25%) + K/D(20%) + Wins(15%) + MP(10%) | Min 8 fights | Bayesian WR (shrinks low volume) | Champs first")
     return e
 
 class GoatView(ui.View):
