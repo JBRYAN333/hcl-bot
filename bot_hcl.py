@@ -313,9 +313,21 @@ def get_streak(p):
             break
     return count
 
+AFFILIATION_EMOJIS = {
+    "BBK": "🍌", "CHAOS": "💀", "DWO": "⚫", "SAL": "🦅", "IMPERIO": "👑",
+}
+
 def get_affiliation(p):
     aff = p.get("affiliation")
     return aff if aff else None
+
+def get_affiliation_display(p):
+    """Retorna afiliação com emoji, ex: 🍌 BBK"""
+    aff = get_affiliation(p)
+    if not aff:
+        return ""
+    emoji = AFFILIATION_EMOJIS.get(aff.upper(), "🏷️")
+    return f"{emoji} {aff}"
 
 def get_tier_color(tier):
     key = (tier or "").upper() if isinstance(tier, str) else "F"
@@ -375,8 +387,7 @@ def build_tier_embed(tier, players_in_tier):
     emoji = get_tier_emoji(tier)
     lines = []
     for p in players_in_tier:
-        aff = get_affiliation(p)
-        aff_str = f" *{aff}*" if aff else ""
+        aff_str = f" {get_affiliation_display(p)}" if get_affiliation(p) else ""
         lines.append(f"**{get_name(p)}**{aff_str}  `{get_record(p)}`")
     embed = discord.Embed(
         title=f"{emoji} {tier} TIER  ({len(players_in_tier)} fighters)",
@@ -387,11 +398,11 @@ def build_tier_embed(tier, players_in_tier):
 
 def build_player_embed(found):
     pname = get_name(found)
-    aff = get_affiliation(found)
+    aff_display = get_affiliation_display(found)
     tier = found.get("tier") or "F"
     color = get_tier_color(tier)
     emoji = get_tier_emoji(tier)
-    title = pname + (f"  *{aff}*" if aff else "")
+    title = pname + (f"  {aff_display}" if aff_display else "")
     embed = discord.Embed(title=title, color=color)
     embed.add_field(name="Tier", value=f"{emoji} **{tier}**", inline=True)
     embed.add_field(name="Record", value=get_record(found), inline=True)
@@ -401,7 +412,7 @@ def build_player_embed(found):
     embed.add_field(name="K/D", value=round(found.get("kills", 0) / max(found.get("deaths", 1), 1), 2), inline=True)
     embed.add_field(name="Region", value=found.get("region") or "?", inline=True)
     embed.add_field(name="Platform", value=found.get("platform") or "PC", inline=True)
-    embed.add_field(name="Affiliation", value=aff or "None", inline=True)
+    embed.add_field(name="Affiliation", value=aff_display or "None", inline=True)
     if found.get("previousTier"):
         embed.add_field(name="Prev. Tier", value=found["previousTier"], inline=True)
     embed.add_field(name="Available", value="✅" if player_is_available(found) else "❌", inline=True)
@@ -530,7 +541,12 @@ class HCLMainPanel(ui.View):
         for p in visible:
             a = p.get("affiliation") or "None"
             aff_counts[a] = aff_counts.get(a, 0) + 1
-        embed.add_field(name="Fighters by Affiliation", value="  ".join(f"**{a}**: {c}" for a, c in sorted(aff_counts.items())), inline=False)
+        AFF_EMOJIS = {"BBK": "🍌", "CHAOS": "💀", "DWO": "⚫", "SAL": "🦅", "IMPERIO": "👑"}
+        aff_lines = []
+        for a, c in sorted(aff_counts.items()):
+            emoji = AFF_EMOJIS.get(a.upper(), "🏷️") if a != "None" else ""
+            aff_lines.append(f"{emoji} **{a}**: {c}".strip())
+        embed.add_field(name="Fighters by Affiliation", value="  ".join(aff_lines), inline=False)
         embed.add_field(name="🔪 Top 3 Kills", value="\n".join(f"{i+1}. **{get_name(p)}** — {p.get('kills',0)}" for i, p in enumerate(top_kills)), inline=True)
         embed.add_field(name="🏆 Top 3 Wins", value="\n".join(f"{i+1}. **{get_name(p)}** — {p.get('wins',0)}" for i, p in enumerate(top_wins)), inline=True)
         await interaction.edit_original_response(embed=embed, view=BackToMainView())
@@ -839,8 +855,7 @@ class TierSelectView(ui.View):
                 emoji = get_tier_emoji(tier)
                 lines = []
                 for p in tiers[tier]:
-                    aff = get_affiliation(p)
-                    aff_str = f" *{aff}*" if aff else ""
+                    aff_str = f" {get_affiliation_display(p)}" if get_affiliation(p) else ""
                     lines.append(f"**{get_name(p)}**{aff_str}  `{get_record(p)}`")
                 embed.add_field(name=f"{emoji} {tier} ({len(tiers[tier])})", value="\n".join(lines) or "—", inline=False)
             await interaction.edit_original_response(embed=embed, view=BackToTierView())
@@ -874,16 +889,16 @@ class TierSelectView(ui.View):
                 embed = discord.Embed(title="👑 Champion", description="❌ No champion found.", color=0xFFD700)
                 return await interaction.edit_original_response(embed=embed, view=BackToTierView())
             champ = champs[0]
-            aff = get_affiliation(champ)
+            aff_display = get_affiliation_display(champ)
             embed = discord.Embed(
                 title="🥇 HCL WORLD CHAMPION",
-                description=f"👑 **{get_name(champ)}**" + (f"  *{aff}*" if aff else ""),
+                description=f"👑 **{get_name(champ)}**" + (f"  {aff_display}" if aff_display else ""),
                 color=0xFFD700
             )
             embed.add_field(name="Record", value=get_record(champ), inline=True)
             embed.add_field(name="Kills", value=champ.get("kills", 0), inline=True)
             embed.add_field(name="Region", value=champ.get("region", "?"), inline=True)
-            embed.set_footer(text=f"Affiliation: {aff or 'None'}")
+            embed.set_footer(text=f"Affiliation: {aff_display or 'None'}")
             return await interaction.edit_original_response(embed=embed, view=BackToTierView())
         filtered = [p for p in visible if (p.get("tier") or "").upper() == tier.upper()]
         if not filtered:
@@ -933,8 +948,7 @@ class RosterNavView(ui.View):
                 )
                 current_lines = []
             current_tier = t
-            aff = get_affiliation(p)
-            aff_str = f" *{aff}*" if aff else ""
+            aff_str = f" {get_affiliation_display(p)}" if get_affiliation(p) else ""
             record = get_record(p)
             current_lines.append(f"**{get_name(p)}**{aff_str}  `{record}`")
         if current_lines and current_tier:
@@ -1040,10 +1054,6 @@ class FightersTierSelect(ui.Select):
         self.view.tier = self.values[0]
         await interaction.response.defer()
 
-AFFILIATION_EMOJIS = {
-    "BBK": "🔥", "CHAOS": "💥", "DWO": "⚔️", "SAL": "🛡️",
-}
-
 def build_affiliation_options(players: list[dict]) -> list[discord.SelectOption]:
     options = [
         discord.SelectOption(label="All Affiliations", value="ALL", emoji="🤝"),
@@ -1105,13 +1115,13 @@ async def send_fighters(interaction: discord.Interaction, region="ALL", tier="AL
         ])) or "All fighters"
         embed = discord.Embed(title=f"🥊 FIGHTERS  ({total} found)", description=f"Filter: `{labels}`", color=0xFF0000)
         for p in result:
-            aff = get_affiliation(p)
+            aff_display = get_affiliation_display(p)
             t = p.get("tier") or "?"
             emoji = get_tier_emoji(t)
             value = (
                 f"{emoji} **{t}**  |  {get_record(p)}  |  K: {p.get('kills',0)} / D: {p.get('deaths',0)}\n"
                 f"Region: {p.get('region','?')}  |  Platform: {p.get('platform') or 'PC'}"
-                + (f"\nAffiliation: *{aff}*" if aff else "")
+                + (f"\nAffiliation: {aff_display}" if aff_display else "")
             )
             embed.add_field(name=get_name(p), value=value, inline=False)
         await interaction.edit_original_response(embed=embed, view=BackToFightersView())
@@ -1149,13 +1159,13 @@ class FightersNavView(ui.View):
             color=0xFF0000
         )
         for _, p in page_entries:
-            aff = get_affiliation(p)
+            aff_display = get_affiliation_display(p)
             t = p.get("tier") or "?"
             emoji = get_tier_emoji(t)
             value = (
                 f"{emoji} **{t}**  |  {get_record(p)}  |  K: {p.get('kills',0)} / D: {p.get('deaths',0)}\n"
                 f"Region: {p.get('region','?')}  |  Platform: {p.get('platform') or 'PC'}"
-                + (f"\nAffiliation: *{aff}*" if aff else "")
+                + (f"\nAffiliation: {aff_display}" if aff_display else "")
             )
             embed.add_field(name=get_name(p), value=value, inline=False)
         embed.set_footer(text=f"Page {self.page + 1}/{self.total_pages} • {len(self.entries)} total")
@@ -1402,8 +1412,7 @@ async def send_top(interaction: discord.Interaction, category: str):
     embed = discord.Embed(title=f"🏆 Top {label} — HCL", color=0xFFAA00)
     for i, p in enumerate(ranked[:15]):
         medal = medals[i] if i < 3 else f"`#{i+1}`"
-        aff = get_affiliation(p)
-        aff_str = f" *{aff}*" if aff else ""
+        aff_str = f" {get_affiliation_display(p)}" if get_affiliation(p) else ""
         embed.add_field(
             name=f"{medal} {get_name(p)}{aff_str}",
             value=f"{label}: **{val_fn(p)}**  |  Tier: {p.get('tier','?')}  |  Record: {get_record(p)}",
@@ -1524,7 +1533,8 @@ def build_goat_embed(goat_data: list) -> discord.Embed:
     for rank, (score, p) in enumerate(goat_data[:15], 1):
         medal = ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else f"`#{rank}`"
         wr_pct = round(p["wins"] / p["mp"] * 100, 1)
-        aff = f" *{p['affiliation']}*" if p["affiliation"] else ""
+        aff_emoji = AFFILIATION_EMOJIS.get(p["affiliation"].upper(), "🏷️") if p["affiliation"] else ""
+        aff = f" {aff_emoji}" if p["affiliation"] else ""
         e.add_field(
             name=f"{medal} {p['name']}{aff}",
             value=(
@@ -1681,9 +1691,9 @@ async def send_top_ctx(ctx, category: str):
     embed = discord.Embed(title=f"🏆 Top {label} — HCL", color=0xFFAA00)
     for i, p in enumerate(ranked[:15]):
         medal = medals[i] if i < 3 else f"`#{i+1}`"
-        aff = get_affiliation(p)
+        aff_str = f" {get_affiliation_display(p)}" if get_affiliation(p) else ""
         embed.add_field(
-            name=f"{medal} {get_name(p)}" + (f" *{aff}*" if aff else ""),
+            name=f"{medal} {get_name(p)}{aff_str}",
             value=f"{label}: **{val_fn(p)}**  |  Tier: {p.get('tier','?')}  |  Record: {get_record(p)}",
             inline=False
         )
