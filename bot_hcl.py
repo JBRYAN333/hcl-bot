@@ -971,10 +971,15 @@ class BackToTierView(ui.View):
 class FightersFilterView(ui.View):
     def __init__(self, affiliation_options: list[discord.SelectOption]):
         super().__init__(timeout=None)
+        self.region = "ALL"
+        self.tier = "ALL"
+        self.affiliation = "ALL"
+        self.available = "AVAILABLE"
         self.add_item(FightersRegionSelect())
         self.add_item(FightersTierSelect())
         self.add_item(FightersAffiliationSelect(affiliation_options))
         self.add_item(FightersAvailableSelect())
+        self.add_item(FightersApplyButton())
         self.add_item(FightersBackButton())
 
 class FightersBackButton(ui.Button):
@@ -983,6 +988,14 @@ class FightersBackButton(ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.edit_message(embed=build_main_panel_embed(), view=HCLMainPanel())
+
+class FightersApplyButton(ui.Button):
+    def __init__(self):
+        super().__init__(label="✅ Apply Filters", style=discord.ButtonStyle.success, custom_id="fighters_apply", row=4)
+
+    async def callback(self, interaction: discord.Interaction):
+        v = self.view
+        await send_fighters(interaction, region=v.region, tier=v.tier, affiliation=v.affiliation, available=v.available)
 
 class FightersRegionSelect(ui.Select):
     def __init__(self):
@@ -996,7 +1009,8 @@ class FightersRegionSelect(ui.Select):
         super().__init__(placeholder="🌍 Filter by Region", options=options, custom_id="fighters_region", row=0)
 
     async def callback(self, interaction: discord.Interaction):
-        await send_fighters(interaction, region=self.values[0])
+        self.view.region = self.values[0]
+        await interaction.response.defer()
 
 class FightersTierSelect(ui.Select):
     def __init__(self):
@@ -1013,7 +1027,8 @@ class FightersTierSelect(ui.Select):
         super().__init__(placeholder="🏆 Filter by Tier", options=options, custom_id="fighters_tier", row=1)
 
     async def callback(self, interaction: discord.Interaction):
-        await send_fighters(interaction, tier=self.values[0])
+        self.view.tier = self.values[0]
+        await interaction.response.defer()
 
 AFFILIATION_EMOJIS = {
     "BBK": "🔥", "CHAOS": "💥", "DWO": "⚔️", "SAL": "🛡️",
@@ -1038,7 +1053,8 @@ class FightersAffiliationSelect(ui.Select):
         super().__init__(placeholder="🤝 Filter by Affiliation", options=options, custom_id="fighters_affiliation", row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        await send_fighters(interaction, affiliation=self.values[0])
+        self.view.affiliation = self.values[0]
+        await interaction.response.defer()
 
 class FightersAvailableSelect(ui.Select):
     def __init__(self):
@@ -1049,7 +1065,8 @@ class FightersAvailableSelect(ui.Select):
         super().__init__(placeholder="🟢 Availability", options=options, custom_id="fighters_available", row=3)
 
     async def callback(self, interaction: discord.Interaction):
-        await send_fighters(interaction, available=self.values[0])
+        self.view.available = self.values[0]
+        await interaction.response.defer()
 
 async def send_fighters(interaction: discord.Interaction, region="ALL", tier="ALL", affiliation="ALL", available="AVAILABLE"):
     await interaction.response.defer()
