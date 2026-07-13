@@ -979,7 +979,7 @@ class FightersFilterView(ui.View):
 
 class FightersBackButton(ui.Button):
     def __init__(self):
-        super().__init__(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="fighters_back", row=3)
+        super().__init__(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="fighters_back", row=4)
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.edit_message(embed=build_main_panel_embed(), view=HCLMainPanel())
