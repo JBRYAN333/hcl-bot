@@ -1368,6 +1368,7 @@ class MatchesNavView(ui.View):
     async def btn_sort(self, interaction: discord.Interaction, button: ui.Button):
         self.sort_by = "event" if self.sort_by == "date" else "date"
         self.page = 0
+        self._apply_sort(self.matches)
         self._update_buttons()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
