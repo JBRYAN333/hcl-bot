@@ -428,7 +428,7 @@ def build_main_panel_embed():
     embed.add_field(name="🥊 Latest Matches", value="Recent completed matches", inline=True)
     embed.add_field(name="📅 Events", value="Upcoming and past events", inline=True)
     embed.add_field(name="📊 Stats", value="General HCL statistics", inline=True)
-    embed.add_field(name="🏅 Rankings", value="Top fighters by wins/kills/K/D", inline=True)
+    embed.add_field(name="🏅 Rankings", value="Top fighters by wins/kills/K/D/GOAT", inline=True)
     embed.add_field(name="🔄 Refresh", value="Refresh data from the API", inline=True)
     embed.add_field(name="📜 Past Seasons", value="Season 1, Season 2, All-Time stats", inline=True)
     embed.set_footer(text=f"HCL Bot • {HCL_SITE}")
@@ -1341,6 +1341,16 @@ class TopSelectView(ui.View):
     async def top_kd(self, interaction: discord.Interaction, button: ui.Button):
         await send_top(interaction, "kd")
 
+    @ui.button(label="🐐 GOAT", style=discord.ButtonStyle.success, custom_id="top_goat")
+    async def goat(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.defer()
+        players = await get_players()
+        goat_data = compute_hcl_goat(players)
+        if not goat_data:
+            embed = discord.Embed(title="🐐 GOAT", description="❌ Not enough data (min 5 fights needed).", color=0xFFD700)
+            return await interaction.edit_original_response(embed=embed, view=TopSelectView())
+        await interaction.edit_original_response(embed=build_goat_embed(goat_data), view=GoatView())
+
     @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="top_back")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=build_main_panel_embed(), view=HCLMainPanel())
@@ -1425,6 +1435,91 @@ async def on_member_join(member: discord.Member):
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.set_footer(text=f"HCL Bot • {HCL_SITE}")
     await channel.send(embed=embed)
+
+# ========================= GOAT =========================
+TIER_WEIGHTS = {
+    "Champion": 1.0, "S": 0.85, "A": 0.70, "B": 0.55,
+    "C": 0.40, "D": 0.25, "F": 0.10,
+}
+MIN_GOAT_FIGHTS = 5
+
+def compute_hcl_goat(players: list[dict]) -> list[dict]:
+    eligible = []
+    for p in players:
+        w = p.get("wins", 0)
+        l = p.get("losses", 0)
+        total = w + l
+        if total < MIN_GOAT_FIGHTS:
+            continue
+        tier = (p.get("tier") or "F").capitalize()
+        tw = TIER_WEIGHTS.get(tier, 0.10)
+        k = p.get("kills", 0)
+        d = p.get("deaths", 0)
+        kd = k / max(d, 1)
+        eligible.append({
+            "name": get_name(p),
+            "tier": tier,
+            "wins": w, "losses": l, "mp": total,
+            "kills": k, "deaths": d, "kd": kd,
+            "affiliation": get_affiliation(p) or "",
+            "tier_weight": tw,
+        })
+    if not eligible:
+        return []
+    max_wins = max(e["wins"] for e in eligible) or 1
+    max_mp = max(e["mp"] for e in eligible) or 1
+    max_kd = max(e["kd"] for e in eligible) or 1
+    scored = []
+    for e in eligible:
+        wr = e["wins"] / e["mp"]
+        score = (
+            e["tier_weight"] * 0.30
+            + wr * 0.25
+            + (e["kd"] / max_kd) * 0.20
+            + (e["wins"] / max_wins) * 0.15
+            + (e["mp"] / max_mp) * 0.10
+        )
+        scored.append((round(score, 4), e))
+    scored.sort(key=lambda x: -x[0])
+    champs = [s for s in scored if s[1]["tier"] == "Champion"]
+    others = [s for s in scored if s[1]["tier"] != "Champion"]
+    return champs + others
+
+def build_goat_embed(goat_data: list) -> discord.Embed:
+    e = discord.Embed(
+        title="🐐 HCL GOAT Rankings",
+        description="Greatest of All Time — scored by tier, win rate, K/D, wins and match volume.",
+        color=0xFFD700
+    )
+    for rank, (score, p) in enumerate(goat_data[:15], 1):
+        medal = ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else f"`#{rank}`"
+        wr_pct = round(p["wins"] / p["mp"] * 100, 1)
+        aff = f" *{p['affiliation']}*" if p["affiliation"] else ""
+        e.add_field(
+            name=f"{medal} {p['name']}{aff}",
+            value=(
+                f"🏆 **{p['tier']}**  |  `{p['wins']}-{p['losses']}`  |  "
+                f"{wr_pct}% WR  |  K/D {round(p['kd'], 2)}  |  "
+                f"{p['mp']} MP  |  Score `{score}`"
+            ),
+            inline=False
+        )
+    e.set_footer(text="GOAT formula: Tier(30%) + WR(25%) + K/D(20%) + Wins(15%) + MP(10%) | Min 5 fights | Champions ranked first")
+    return e
+
+class GoatView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="🏠 Main Menu", style=discord.ButtonStyle.primary, custom_id="goat_home")
+    async def home(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.edit_message(embed=build_main_panel_embed(), view=HCLMainPanel())
+
+    @ui.button(label="🔙 Rankings", style=discord.ButtonStyle.secondary, custom_id="goat_back")
+    async def back(self, interaction: discord.Interaction, button: ui.Button):
+        embed = discord.Embed(title="🏅 Rankings", description="Choose a ranking category:", color=0xFFAA00)
+        await interaction.response.edit_message(embed=embed, view=TopSelectView())
+
 
 # ========================= !panel — Posts the interactive button panel =========================
 @bot.command(name="panel")
@@ -1531,6 +1626,14 @@ async def cmd_events(ctx):
 @bot.command(name="top")
 async def cmd_top(ctx, category: str = "wins"):
     await send_top_ctx(ctx, category)
+
+@bot.command(name="goat")
+async def cmd_goat(ctx):
+    players = await get_players()
+    goat_data = compute_hcl_goat(players)
+    if not goat_data:
+        return await ctx.send("❌ Not enough data for GOAT rankings (min 5 fights).")
+    await ctx.send(embed=build_goat_embed(goat_data), view=GoatView())
 
 async def send_top_ctx(ctx, category: str):
     players = await get_players()
@@ -1660,6 +1763,7 @@ async def cmd_help(ctx):
     embed.add_field(name="!events", value="List of HCL events", inline=False)
     embed.add_field(name="!top [wins|kills|kd]", value="Ex: `!top` | `!top kills`", inline=False)
     embed.add_field(name="!refresh", value="Force a data refresh from the API", inline=False)
+    embed.add_field(name="!goat", value="🐐 HCL GOAT rankings", inline=False)
     embed.add_field(name="!supastatus", value="Shows Supabase sync status", inline=False)
     embed.add_field(name="!seasons", value="List available past seasons", inline=False)
     embed.add_field(name="!season1", value="Season 1 Regional rankings", inline=False)
