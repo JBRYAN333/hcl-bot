@@ -1,4 +1,5 @@
 import os
+import asyncio
 import time
 from datetime import datetime, timezone
 
@@ -13,19 +14,30 @@ HEADERS = {
 
 async def supabase_select(table: str, params: str = ""):
     import aiohttp
+    if not SUPABASE_URL:
+        return None
     url = f"{SUPABASE_URL}/{table}{params}"
-    async with aiohttp.ClientSession() as s:
-        async with s.get(url, headers=HEADERS) as r:
-            if r.status == 200:
-                return await r.json()
-            elif r.status >= 400:
-                text = await r.text()
-                print(f"⚠️ Supabase select {table} — HTTP {r.status}: {text[:200]}")
-            return None
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=15)) as r:
+                if r.status == 200:
+                    return await r.json()
+                elif r.status >= 400:
+                    text = await r.text()
+                    print(f"⚠️ Supabase select {table} — HTTP {r.status}: {text[:200]}")
+    except asyncio.TimeoutError:
+        print(f"⚠️ Supabase select {table} — timeout")
+    except Exception as ex:
+        msg = str(ex)
+        if "Name or service not known" in msg:
+            print(f"⚠️ Supabase select {table} — DNS resolution failed (host unreachable)")
+        else:
+            print(f"⚠️ Supabase select {table} — {msg[:120]}")
+    return None
 
 async def supabase_upsert(table: str, rows: list[dict]):
     import aiohttp
-    if not rows:
+    if not rows or not SUPABASE_URL:
         return 0
     url = f"{SUPABASE_URL}/{table}?on_conflict=id"
     total = 0
@@ -41,8 +53,13 @@ async def supabase_upsert(table: str, rows: list[dict]):
                     elif r.status >= 400:
                         text = await r.text()
                         print(f"⚠️ Supabase upsert {table} batch {i} — HTTP {r.status}: {text[:200]}")
+            except asyncio.TimeoutError:
+                print(f"⚠️ Supabase upsert {table} batch {i} — timeout")
             except Exception as ex:
-                print(f"⚠️ Supabase upsert {table} batch {i} — exception: {ex}")
+                msg = str(ex)
+                if "Name or service not known" in msg:
+                    return 0
+                print(f"⚠️ Supabase upsert {table} batch {i} — {msg[:120]}")
     return total
 
 async def supabase_delete_where_not_in(table: str, ids: list[str]):

@@ -52,16 +52,21 @@ async def get_players():
         and (now - players_cache_ts) < PLAYERS_CACHE_TTL_SEC
     ):
         return players_cache
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{API_BASE}/players", timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    players_cache = data if isinstance(data, list) else data.get("players", data)
-                    players_cache_ts = now
-                    return players_cache
-    except Exception:
-        pass
+    # Tenta com timeout maior; a API pode estar lenta com muitos dados
+    for attempt in range(2):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{API_BASE}/players", timeout=aiohttp.ClientTimeout(total=90)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        players_cache = data if isinstance(data, list) else data.get("players", data)
+                        players_cache_ts = now
+                        return players_cache
+                    print(f"⚠️ get_players HTTP {resp.status}")
+        except asyncio.TimeoutError:
+            print(f"⚠️ get_players timeout (attempt {attempt+1}/2)")
+        except Exception as e:
+            print(f"⚠️ get_players error: {e}")
     # Fallback: tenta ler do Supabase
     sb_data = await fetch_from_supabase("players", "updated_at.desc")
     if sb_data:
@@ -74,14 +79,18 @@ async def get_matches():
     global matches_cache
     if matches_cache:
         return matches_cache
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{API_BASE}/matches", timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status == 200:
-                    matches_cache = await resp.json()
-                    return matches_cache
-    except Exception:
-        pass
+    for attempt in range(2):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{API_BASE}/matches", timeout=aiohttp.ClientTimeout(total=90)) as resp:
+                    if resp.status == 200:
+                        matches_cache = await resp.json()
+                        return matches_cache
+                    print(f"⚠️ get_matches HTTP {resp.status}")
+        except asyncio.TimeoutError:
+            print(f"⚠️ get_matches timeout (attempt {attempt+1}/2)")
+        except Exception as e:
+            print(f"⚠️ get_matches error: {e}")
     # Fallback: Supabase
     sb_data = await fetch_from_supabase("matches", "played_at.desc")
     if sb_data:
@@ -93,14 +102,18 @@ async def get_events():
     global events_cache
     if events_cache:
         return events_cache
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{API_BASE}/events", timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status == 200:
-                    events_cache = await resp.json()
-                    return events_cache
-    except Exception:
-        pass
+    for attempt in range(2):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{API_BASE}/events", timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status == 200:
+                        events_cache = await resp.json()
+                        return events_cache
+                    print(f"⚠️ get_events HTTP {resp.status}")
+        except asyncio.TimeoutError:
+            print(f"⚠️ get_events timeout (attempt {attempt+1}/2)")
+        except Exception as e:
+            print(f"⚠️ get_events error: {e}")
     # Fallback: Supabase
     sb_data = await fetch_from_supabase("events", "date.desc")
     if sb_data:
@@ -113,11 +126,14 @@ async def sync_table_from_api(endpoint: str, table: str, transform_fn=None):
     global last_sync_time
     async with aiohttp.ClientSession() as s:
         try:
-            async with s.get(f"{API_BASE}/{endpoint}", timeout=aiohttp.ClientTimeout(total=30)) as r:
+            async with s.get(f"{API_BASE}/{endpoint}", timeout=aiohttp.ClientTimeout(total=120)) as r:
                 if r.status != 200:
                     print(f"⚠️ {endpoint} API returned {r.status}")
                     return 0
                 data = await r.json()
+        except asyncio.TimeoutError:
+            print(f"⚠️ {endpoint} API timeout")
+            return 0
         except Exception as ex:
             print(f"⚠️ {endpoint} API request failed: {ex}")
             return 0
@@ -202,9 +218,26 @@ async def sync_all_to_supabase():
 
 async def supabase_sync_loop():
     await bot.wait_until_ready()
+    consecutive_failures = 0
     while not bot.is_closed():
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            consecutive_failures += 1
+            if consecutive_failures == 1:
+                print("⚠️ Supabase not configured — sync disabled")
+            await asyncio.sleep(3600)
+            continue
         try:
-            await sync_all_to_supabase()
+            p, m, e = await sync_all_to_supabase()
+            total = p + m + e
+            if total == 0 and consecutive_failures > 0:
+                consecutive_failures += 1
+            else:
+                consecutive_failures = 0
+            if consecutive_failures > 10:
+                backoff = min(3600, 300 * (2 ** min(consecutive_failures - 10, 5)))
+                print(f"⏳ Supabase sync backing off — {backoff}s until next attempt")
+                await asyncio.sleep(backoff)
+                continue
             if os.environ.get("SHEET_ID"):
                 try:
                     import sheets_backup
@@ -213,6 +246,7 @@ async def supabase_sync_loop():
                     print(f"⚠️ Sheets backup error: {sheets_ex}")
         except Exception as e:
             print(f"⚠️ Supabase sync error: {e}")
+            consecutive_failures += 1
         await asyncio.sleep(300)
 
 async def initial_supabase_sync():
@@ -233,6 +267,24 @@ async def fetch_from_supabase(table: str, order: str = None):
 def get_name(p):
     return p.get("username") or p.get("name") or "Unknown"
 
+def find_player(players: list[dict], query: str) -> dict | None:
+    q = query.strip().lower()
+    if not q:
+        return None
+    # 1. match exato (case insensitive)
+    for p in players:
+        if q == get_name(p).lower():
+            return p
+    # 2. começo do nome
+    for p in players:
+        if get_name(p).lower().startswith(q):
+            return p
+    # 3. substring (fallback)
+    for p in players:
+        if q in get_name(p).lower():
+            return p
+    return None
+
 def player_is_available(p):
     """True if the API marks the fighter as available (hclmanager /api/players `available`, toggled in Admin)."""
     v = p.get("available")
@@ -250,10 +302,12 @@ def get_record(p):
     return f"{p.get('wins', 0)}-{p.get('losses', 0)}"
 
 def get_streak(p):
-    history = p.get("matchHistory") or []
+    history = p.get("matchHistory")
+    if not isinstance(history, list):
+        return 0
     count = 0
     for m in history:
-        if m.get("result") == "win":
+        if isinstance(m, dict) and m.get("result") == "win":
             count += 1
         else:
             break
@@ -264,25 +318,28 @@ def get_affiliation(p):
     return aff if aff else None
 
 def get_tier_color(tier):
+    key = (tier or "").upper() if isinstance(tier, str) else "F"
     return {
-        "Champion": 0xFFD700,
+        "CHAMPION": 0xFFD700,
         "S": 0x00FFFF,
         "A": 0xFFFF00,
         "B": 0xAAAAAA,
         "C": 0xFF8800,
         "D": 0x00FF00,
         "F": 0xFF0000,
-    }.get(tier.upper() if tier else "F", 0xFFFFFF)
+    }.get(key, 0xFFFFFF)
 
 def get_tier_emoji(tier):
+    if not isinstance(tier, str):
+        return "❓"
     return {
-        "Champion": "👑",
-        "S": "🔵",
-        "A": "🟡",
-        "B": "⚪",
-        "C": "🟠",
-        "D": "🟢",
-        "F": "🔴",
+        "Champion": "👑", "champion": "👑",
+        "S": "🔵", "s": "🔵",
+        "A": "🟡", "a": "🟡",
+        "B": "⚪", "b": "⚪",
+        "C": "🟠", "c": "🟠",
+        "D": "🟢", "d": "🟢",
+        "F": "🔴", "f": "🔴",
     }.get(tier, "❓")
 
 def get_avatar_file(p):
@@ -338,13 +395,18 @@ def build_player_embed(found):
     if found.get("previousTier"):
         embed.add_field(name="Prev. Tier", value=found["previousTier"], inline=True)
     embed.add_field(name="Available", value="✅" if player_is_available(found) else "❌", inline=True)
-    history = found.get("matchHistory") or []
-    if history:
+    history = found.get("matchHistory")
+    if isinstance(history, list) and history:
         lines = []
         for m in history[:5]:
+            if not isinstance(m, dict):
+                continue
             res = "✅" if m.get("result") == "win" else "❌"
-            lines.append(f"{res} vs **{m.get('opponent','?')}**  {m.get('playerScore','?')}-{m.get('opponentScore','?')}  _{m.get('event','')}_")
-        embed.add_field(name=f"📜 Recent Matches ({len(history)} total)", value="\n".join(lines), inline=False)
+            ps = m.get("playerScore", "?")
+            os_ = m.get("opponentScore", "?")
+            lines.append(f"{res} vs **{m.get('opponent','?')}**  {ps}-{os_}  _{m.get('event','')}_")
+        if lines:
+            embed.add_field(name=f"📜 Recent Matches ({len(history)} total)", value="\n".join(lines), inline=False)
     return embed
 
 # ========================= VIEWS =========================
@@ -388,14 +450,15 @@ class HCLMainPanel(ui.View):
 
     @ui.button(label="🥊 Fighters", style=discord.ButtonStyle.primary, custom_id="hcl_fighters", row=0)
     async def btn_fighters(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.defer()
+        players = await get_players()
+        opts = build_affiliation_options(players)
         embed = discord.Embed(
             title="🥊 Fighters",
             description="Select a filter below to browse the roster:",
             color=0x0055FF
         )
-        players = await get_players()
-        opts = build_affiliation_options(players)
-        await interaction.response.edit_message(embed=embed, view=FightersFilterView(opts))
+        await interaction.edit_original_response(embed=embed, view=FightersFilterView(opts))
 
     @ui.button(label="👤 Player Lookup", style=discord.ButtonStyle.success, custom_id="hcl_player", row=0)
     async def btn_player(self, interaction: discord.Interaction, button: ui.Button):
@@ -938,7 +1001,7 @@ class PlayerLookupModal(ui.Modal, title="🔍 Fighter Lookup"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         players = await get_players()
-        found = next((p for p in players if self.name.value.lower() in get_name(p).lower()), None)
+        found = find_player(players, self.name.value)
         if not found:
             return await interaction.followup.send(f"❌ No fighter found matching **{self.name.value}**.")
         embed = build_player_embed(found)
@@ -960,7 +1023,8 @@ class PlayerActionsView(ui.View):
     async def btn_history(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=False)
         found = self.player
-        history = found.get("matchHistory") or []
+        raw_history = found.get("matchHistory")
+        history = raw_history if isinstance(raw_history, list) else []
         if not history:
             return await interaction.followup.send(f"✅ **{get_name(found)}** has no recorded matches yet.")
         tier = found.get("tier") or "F"
@@ -971,8 +1035,12 @@ class PlayerActionsView(ui.View):
             color=color
         )
         for m in history:
+            if not isinstance(m, dict):
+                continue
             res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
-            score = f"{m.get('playerScore','?')}-{m.get('opponentScore','?')}"
+            ps = m.get("playerScore", "?")
+            os_ = m.get("opponentScore", "?")
+            score = f"{ps}-{os_}"
             vod = m.get("recordingUrl")
             vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
             t_before = m.get("tierBefore", "?")
@@ -993,10 +1061,11 @@ class HistoryLookupModal(ui.Modal, title="📜 Match History Lookup"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         players = await get_players()
-        found = next((p for p in players if self.name.value.lower() in get_name(p).lower()), None)
+        found = find_player(players, self.name.value)
         if not found:
             return await interaction.followup.send(f"❌ Fighter **{self.name.value}** not found.")
-        history = found.get("matchHistory") or []
+        raw_history = found.get("matchHistory")
+        history = raw_history if isinstance(raw_history, list) else []
         if not history:
             return await interaction.followup.send(f"✅ **{get_name(found)}** has no recorded matches yet.")
         tier = found.get("tier") or "F"
@@ -1007,8 +1076,12 @@ class HistoryLookupModal(ui.Modal, title="📜 Match History Lookup"):
             color=color
         )
         for m in history:
+            if not isinstance(m, dict):
+                continue
             res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
-            score = f"{m.get('playerScore','?')}-{m.get('opponentScore','?')}"
+            ps = m.get("playerScore", "?")
+            os_ = m.get("opponentScore", "?")
+            score = f"{ps}-{os_}"
             vod = m.get("recordingUrl")
             vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
             t_before = m.get("tierBefore", "?")
@@ -1137,7 +1210,10 @@ async def on_ready():
     # Inicia sync loop com Supabase (background — não bloqueia)
     bot.loop.create_task(supabase_sync_loop())
     # Sync inicial leve — se falhar, o background tenta de novo
-    bot.loop.create_task(initial_supabase_sync())
+    if SUPABASE_URL and SUPABASE_KEY:
+        bot.loop.create_task(initial_supabase_sync())
+    else:
+        print("⚠️ Supabase not configured — skipping initial sync")
 
 # ========================= WELCOME — NEW CHALLENGER =========================
 WELCOME_CHANNEL_ID    = 1274034491073237086   # 💬-chat
@@ -1196,7 +1272,7 @@ async def cmd_fighters(ctx, *args):
 async def cmd_player(ctx, *, name: str = None):
     if name:
         players = await get_players()
-        found = next((p for p in players if name.lower() in get_name(p).lower()), None)
+        found = find_player(players, name)
         if not found:
             return await ctx.send(f"❌ No fighter found matching **{name}**.")
         embed = build_player_embed(found)
@@ -1219,10 +1295,11 @@ async def cmd_player(ctx, *, name: str = None):
 async def cmd_history(ctx, *, name: str = None):
     if name:
         players = await get_players()
-        found = next((p for p in players if name.lower() in get_name(p).lower()), None)
+        found = find_player(players, name)
         if not found:
             return await ctx.send("❌ Fighter not found.")
-        history = found.get("matchHistory") or []
+        raw_history = found.get("matchHistory")
+        history = raw_history if isinstance(raw_history, list) else []
         if not history:
             return await ctx.send(f"✅ **{get_name(found)}** has no recorded matches yet.")
         tier = found.get("tier") or "F"
@@ -1232,8 +1309,12 @@ async def cmd_history(ctx, *, name: str = None):
             color=get_tier_color(tier)
         )
         for m in history:
+            if not isinstance(m, dict):
+                continue
             res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
-            score = f"{m.get('playerScore','?')}-{m.get('opponentScore','?')}"
+            ps = m.get("playerScore", "?")
+            os_ = m.get("opponentScore", "?")
+            score = f"{ps}-{os_}"
             vod = m.get("recordingUrl")
             vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
             t_before = m.get("tierBefore", "?")
