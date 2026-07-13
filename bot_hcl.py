@@ -329,6 +329,16 @@ def get_tier_color(tier):
         "F": 0xFF0000,
     }.get(key, 0xFFFFFF)
 
+def get_match_result(m):
+    """Detecta Win/Draw/Loss. Draw quando scores iguais (winningSide null)."""
+    if m.get("result") == "win":
+        return "✅ Win"
+    ps = m.get("playerScore")
+    os_ = m.get("opponentScore")
+    if ps is not None and os_ is not None and str(ps) == str(os_):
+        return "➖ Draw"
+    return "❌ Loss"
+
 def get_tier_emoji(tier):
     if not isinstance(tier, str):
         return "❓"
@@ -401,7 +411,7 @@ def build_player_embed(found):
         for m in history[:5]:
             if not isinstance(m, dict):
                 continue
-            res = "✅" if m.get("result") == "win" else "❌"
+            res = get_match_result(m)
             ps = m.get("playerScore", "?")
             os_ = m.get("opponentScore", "?")
             lines.append(f"{res} vs **{m.get('opponent','?')}**  {ps}-{os_}  _{m.get('event','')}_")
@@ -1228,7 +1238,7 @@ class PlayerActionsView(ui.View):
         for m in history:
             if not isinstance(m, dict):
                 continue
-            res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
+            res = get_match_result(m)
             ps = m.get("playerScore", "?")
             os_ = m.get("opponentScore", "?")
             score = f"{ps}-{os_}"
@@ -1269,7 +1279,7 @@ class HistoryLookupModal(ui.Modal, title="📜 Match History Lookup"):
         for m in history:
             if not isinstance(m, dict):
                 continue
-            res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
+            res = get_match_result(m)
             ps = m.get("playerScore", "?")
             os_ = m.get("opponentScore", "?")
             score = f"{ps}-{os_}"
@@ -1493,11 +1503,11 @@ def compute_hcl_goat(players: list[dict]) -> list[dict]:
         # Bayesian shrinkage: puxa WR baixo volume pra média (50%)
         adj_wr = (e["wins"] + GOAT_WR_PRIOR_WINS) / (e["mp"] + GOAT_WR_PRIOR_MP)
         score = (
-            e["tier_weight"] * 0.30
-            + adj_wr * 0.25
-            + (e["kd"] / max_kd) * 0.20
-            + (e["wins"] / max_wins) * 0.15
-            + (e["mp"] / max_mp) * 0.10
+            e["tier_weight"] * 0.10
+            + adj_wr * 0.35
+            + (e["kd"] / max_kd) * 0.10
+            + (e["wins"] / max_wins) * 0.25
+            + (e["mp"] / max_mp) * 0.20
         )
         scored.append((round(score, 4), e))
     scored.sort(key=lambda x: -x[0])
@@ -1508,7 +1518,7 @@ def compute_hcl_goat(players: list[dict]) -> list[dict]:
 def build_goat_embed(goat_data: list) -> discord.Embed:
     e = discord.Embed(
         title="🐐 HCL GOAT Rankings",
-        description="Greatest of All Time — scored by tier, adjusted win rate (Bayesian), K/D, wins and match volume. Minimum 8 fights, positive record required.",
+        description="Greatest of All Time — scored by Adj.WR (Bayesian), wins, match volume, tier and K/D, plus draw detection in match history. Minimum 8 fights, positive record required.",
         color=0xFFD700
     )
     for rank, (score, p) in enumerate(goat_data[:15], 1):
@@ -1524,7 +1534,7 @@ def build_goat_embed(goat_data: list) -> discord.Embed:
             ),
             inline=False
         )
-    e.set_footer(text="GOAT: Tier(30%) + Adj.WR(25%) + K/D(20%) + Wins(15%) + MP(10%) | Min 8 fights | Need winning record (W > L) | Bayesian WR | Champs first")
+    e.set_footer(text="GOAT: Tier(10%) + Adj.WR(35%) + K/D(10%) + Wins(25%) + MP(20%) | Min 8 fights | Need winning record (W > L) | Bayesian WR | Champs first")
     return e
 
 class GoatView(ui.View):
@@ -1600,7 +1610,7 @@ async def cmd_history(ctx, *, name: str = None):
         for m in history:
             if not isinstance(m, dict):
                 continue
-            res = "✅ Win" if m.get("result") == "win" else "❌ Loss"
+            res = get_match_result(m)
             ps = m.get("playerScore", "?")
             os_ = m.get("opponentScore", "?")
             score = f"{ps}-{os_}"
