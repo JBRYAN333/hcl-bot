@@ -974,6 +974,7 @@ class FightersFilterView(ui.View):
         self.add_item(FightersRegionSelect())
         self.add_item(FightersTierSelect())
         self.add_item(FightersAffiliationSelect(affiliation_options))
+        self.add_item(FightersAvailableSelect())
         self.add_item(FightersBackButton())
 
 class FightersBackButton(ui.Button):
@@ -1039,10 +1040,24 @@ class FightersAffiliationSelect(ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await send_fighters(interaction, affiliation=self.values[0])
 
-async def send_fighters(interaction: discord.Interaction, region="ALL", tier="ALL", affiliation="ALL"):
+class FightersAvailableSelect(ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Available Only", value="AVAILABLE", emoji="🟢", default=True),
+            discord.SelectOption(label="All Fighters", value="ALL", emoji="👥"),
+        ]
+        super().__init__(placeholder="🟢 Availability", options=options, custom_id="fighters_available", row=3)
+
+    async def callback(self, interaction: discord.Interaction):
+        await send_fighters(interaction, available=self.values[0])
+
+async def send_fighters(interaction: discord.Interaction, region="ALL", tier="ALL", affiliation="ALL", available="AVAILABLE"):
     await interaction.response.defer()
     players = await get_players()
-    result = [p for p in players if not p.get("hiddenFromLeaderboard")]
+    if available == "ALL":
+        result = list(players)
+    else:
+        result = [p for p in players if not p.get("hiddenFromLeaderboard")]
     if region != "ALL":
         result = [p for p in result if (p.get("region") or "").upper() == region]
     if tier != "ALL":
@@ -1054,25 +1069,92 @@ async def send_fighters(interaction: discord.Interaction, region="ALL", tier="AL
     if not result:
         embed = discord.Embed(title="🥊 Fighters", description="❌ No fighters found with those filters.", color=0xFF0000)
         return await interaction.edit_original_response(embed=embed, view=BackToFightersView())
-    labels = " | ".join(filter(None, [
-        f"Region: {region}" if region != "ALL" else "",
-        f"Tier: {tier}" if tier != "ALL" else "",
-        f"Affiliation: {affiliation}" if affiliation != "ALL" else "",
-    ])) or "All fighters"
-    embed = discord.Embed(title=f"🥊 FIGHTERS  ({len(result)} found)", description=f"Filter: `{labels}`", color=0xFF0000)
-    for p in result[:25]:
-        aff = get_affiliation(p)
-        t = p.get("tier") or "?"
-        emoji = get_tier_emoji(t)
-        value = (
-            f"{emoji} **{t}**  |  {get_record(p)}  |  K: {p.get('kills',0)} / D: {p.get('deaths',0)}\n"
-            f"Region: {p.get('region','?')}  |  Platform: {p.get('platform') or 'PC'}"
-            + (f"\nAffiliation: *{aff}*" if aff else "")
+    total = len(result)
+    if total <= 25:
+        labels = " | ".join(filter(None, [
+            f"Region: {region}" if region != "ALL" else "",
+            f"Tier: {tier}" if tier != "ALL" else "",
+            f"Affiliation: {affiliation}" if affiliation != "ALL" else "",
+        ])) or "All fighters"
+        embed = discord.Embed(title=f"🥊 FIGHTERS  ({total} found)", description=f"Filter: `{labels}`", color=0xFF0000)
+        for p in result:
+            aff = get_affiliation(p)
+            t = p.get("tier") or "?"
+            emoji = get_tier_emoji(t)
+            value = (
+                f"{emoji} **{t}**  |  {get_record(p)}  |  K: {p.get('kills',0)} / D: {p.get('deaths',0)}\n"
+                f"Region: {p.get('region','?')}  |  Platform: {p.get('platform') or 'PC'}"
+                + (f"\nAffiliation: *{aff}*" if aff else "")
+            )
+            embed.add_field(name=get_name(p), value=value, inline=False)
+        await interaction.edit_original_response(embed=embed, view=BackToFightersView())
+    else:
+        entries = [("", p) for p in result]
+        view = FightersNavView(entries, 0, region, tier, affiliation, available)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+
+class FightersNavView(ui.View):
+    def __init__(self, entries: list, page: int, region: str, tier: str, affiliation: str, available: str):
+        super().__init__(timeout=None)
+        self.entries = entries
+        self.page = page
+        self.region = region
+        self.tier = tier
+        self.affiliation = affiliation
+        self.available = available
+        self.per_page = 25
+        self.total_pages = max(1, (len(entries) + self.per_page - 1) // self.per_page)
+        self.btn_prev.disabled = page <= 0
+        self.btn_next.disabled = page >= self.total_pages - 1
+
+    def build_embed(self):
+        start = self.page * self.per_page
+        end = start + self.per_page
+        page_entries = self.entries[start:end]
+        labels = " | ".join(filter(None, [
+            f"Region: {self.region}" if self.region != "ALL" else "",
+            f"Tier: {self.tier}" if self.tier != "ALL" else "",
+            f"Affiliation: {self.affiliation}" if self.affiliation != "ALL" else "",
+        ])) or "All fighters"
+        embed = discord.Embed(
+            title=f"🥊 FIGHTERS  ({len(self.entries)} found)",
+            description=f"Filter: `{labels}`",
+            color=0xFF0000
         )
-        embed.add_field(name=get_name(p), value=value, inline=False)
-    if len(result) > 25:
-        embed.set_footer(text=f"Showing 25 of {len(result)}. Use more specific filters.")
-    await interaction.edit_original_response(embed=embed, view=BackToFightersView())
+        for _, p in page_entries:
+            aff = get_affiliation(p)
+            t = p.get("tier") or "?"
+            emoji = get_tier_emoji(t)
+            value = (
+                f"{emoji} **{t}**  |  {get_record(p)}  |  K: {p.get('kills',0)} / D: {p.get('deaths',0)}\n"
+                f"Region: {p.get('region','?')}  |  Platform: {p.get('platform') or 'PC'}"
+                + (f"\nAffiliation: *{aff}*" if aff else "")
+            )
+            embed.add_field(name=get_name(p), value=value, inline=False)
+        embed.set_footer(text=f"Page {self.page + 1}/{self.total_pages} • {len(self.entries)} total")
+        return embed
+
+    @ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, custom_id="fighters_nav_prev")
+    async def btn_prev(self, interaction: discord.Interaction, button: ui.Button):
+        self.page -= 1
+        self.btn_prev.disabled = self.page <= 0
+        self.btn_next.disabled = self.page >= self.total_pages - 1
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, custom_id="fighters_nav_next")
+    async def btn_next(self, interaction: discord.Interaction, button: ui.Button):
+        self.page += 1
+        self.btn_prev.disabled = self.page <= 0
+        self.btn_next.disabled = self.page >= self.total_pages - 1
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, custom_id="fighters_nav_back")
+    async def back(self, interaction: discord.Interaction, button: ui.Button):
+        players = await get_players()
+        opts = build_affiliation_options(players)
+        embed = discord.Embed(title="🥊 Fighters", description="Select a filter below to browse the roster:", color=0x0055FF)
+        await interaction.response.edit_message(embed=embed, view=FightersFilterView(opts))
+
 
 class BackToFightersView(ui.View):
     def __init__(self):
