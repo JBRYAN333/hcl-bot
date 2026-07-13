@@ -1475,6 +1475,8 @@ GOAT_WR_PRIOR_MP = 6
 def compute_hcl_goat(players: list[dict]) -> list[dict]:
     eligible = []
     for p in players:
+        if p.get("hiddenFromLeaderboard"):
+            continue
         w = p.get("wins", 0)
         l = p.get("losses", 0)
         total = w + l
