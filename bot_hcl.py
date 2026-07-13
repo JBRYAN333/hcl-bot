@@ -351,6 +351,10 @@ def get_match_result(m):
         return "➖ Draw"
     return "❌ Loss"
 
+def get_match_date(m):
+    """Retorna a data REAL do evento (scheduledTime) ou playedAt como fallback."""
+    return m.get("scheduledTime") or m.get("playedAt") or ""
+
 def get_tier_emoji(tier):
     if not isinstance(tier, str):
         return "❓"
@@ -500,7 +504,7 @@ class HCLMainPanel(ui.View):
             return await interaction.followup.send("❌ Failed to fetch matches.", ephemeral=True)
         completed = sorted(
             [m for m in matches if m.get("status") == "completed"],
-            key=lambda m: m.get("playedAt") or "", reverse=True
+            key=lambda m: get_match_date(m), reverse=True
         )
         nav = MatchesNavView(completed, players, 0)
         await interaction.edit_original_response(embed=nav.build_embed(), view=nav)
@@ -1322,12 +1326,12 @@ class MatchesNavView(ui.View):
         if self.sort_by == "date":
             self.matches = sorted(
                 matches,
-                key=lambda m: m.get("playedAt") or "", reverse=True
+                key=lambda m: get_match_date(m), reverse=True
             )
         else:
             self.matches = sorted(
                 matches,
-                key=lambda m: (m.get("event") or "", m.get("playedAt") or "")
+                key=lambda m: (m.get("event") or "", get_match_date(m))
             )
 
     def _update_buttons(self):
@@ -1352,7 +1356,7 @@ class MatchesNavView(ui.View):
             winner = p1 if m.get("winningSide") == 1 else p2
             vod = m.get("recordingUrl")
             vod_str = f"[▶ Watch match]({vod})" if vod else "No link"
-            date = (m.get("playedAt") or "")[:10]
+            date = get_match_date(m)[:10]
             embed.add_field(
                 name=f"{p1}  vs  {p2}  |  {score}",
                 value=f"🏆 **{winner}** won  |  📅 {date}  |  {m.get('event','')}  |  {vod_str}",
@@ -1671,7 +1675,7 @@ async def cmd_matches(ctx, limit: int = 8):
     players = await get_players()
     completed = sorted(
         [m for m in matches if m.get("status") == "completed"],
-        key=lambda m: m.get("playedAt") or "", reverse=True
+        key=lambda m: get_match_date(m), reverse=True
     )
     view = MatchesNavView(completed, players, 0)
     await ctx.send(embed=view.build_embed(), view=view)
