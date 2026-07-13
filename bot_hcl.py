@@ -926,8 +926,7 @@ class RosterNavView(ui.View):
             aff = get_affiliation(p)
             aff_str = f" *{aff}*" if aff else ""
             record = get_record(p)
-            avail = "🟢" if player_is_available(p) else "🔴"
-            current_lines.append(f"{avail} **{get_name(p)}**{aff_str}  `{record}`")
+            current_lines.append(f"**{get_name(p)}**{aff_str}  `{record}`")
         if current_lines and current_tier:
             emoji = get_tier_emoji(current_tier)
             embed.add_field(
