@@ -1451,7 +1451,7 @@ def compute_hcl_goat(players: list[dict]) -> list[dict]:
         w = p.get("wins", 0)
         l = p.get("losses", 0)
         total = w + l
-        if total < MIN_GOAT_FIGHTS:
+        if total < MIN_GOAT_FIGHTS or w <= l:
             continue
         tier = (p.get("tier") or "F").capitalize()
         tw = TIER_WEIGHTS.get(tier, 0.10)
@@ -1491,7 +1491,7 @@ def compute_hcl_goat(players: list[dict]) -> list[dict]:
 def build_goat_embed(goat_data: list) -> discord.Embed:
     e = discord.Embed(
         title="🐐 HCL GOAT Rankings",
-        description="Greatest of All Time — scored by tier, adjusted win rate (Bayesian), K/D, wins and match volume. Minimum 8 fights.",
+        description="Greatest of All Time — scored by tier, adjusted win rate (Bayesian), K/D, wins and match volume. Minimum 8 fights, positive record required.",
         color=0xFFD700
     )
     for rank, (score, p) in enumerate(goat_data[:15], 1):
@@ -1507,7 +1507,7 @@ def build_goat_embed(goat_data: list) -> discord.Embed:
             ),
             inline=False
         )
-    e.set_footer(text="GOAT: Tier(30%) + Adj.WR(25%) + K/D(20%) + Wins(15%) + MP(10%) | Min 8 fights | Bayesian WR (shrinks low volume) | Champs first")
+    e.set_footer(text="GOAT: Tier(30%) + Adj.WR(25%) + K/D(20%) + Wins(15%) + MP(10%) | Min 8 fights | Need winning record (W > L) | Bayesian WR | Champs first")
     return e
 
 class GoatView(ui.View):
