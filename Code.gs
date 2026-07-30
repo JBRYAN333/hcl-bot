@@ -6,8 +6,8 @@
  *   2. Extensions > App Script
  *   3. Cole este código e salve (Ctrl+S)
  *   4. No menu esquerdo: Project Settings > Script Properties
- *      - SUPABASE_URL: https://eutlqudgumdxrofoemms.supabase.co/rest/v1
- *      - SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1dGxxdWRndW1keHJvZm9lbW1zIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTM3NzU3NywiZXhwIjoyMDk2OTUzNTc3fQ.gTaTtNR1NpaNVrCDCOvn9WAEE_KRzGONKZ8VJNymFr0
+ *      - SUPABASE_URL: (set via Script Properties — see Supabase dashboard)
+ *      - SUPABASE_KEY: (set via Script Properties — anon key is safe, service_role NEVER commit)
  *   5. Execute a função setupSheet() uma vez (cria as abas)
  *   6. Execute backupAll() para testar
  *   7. Vá em Triggers (relógio) > Add Trigger:
